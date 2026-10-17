@@ -1,4 +1,4 @@
-"""Demonstração para a apresentação: conta cinco histórias e mostra o que o motor decidiu.
+"""Demonstração para a apresentação: conta seis histórias e mostra o que o motor decidiu.
 
     python scripts/demo.py
 
@@ -33,10 +33,10 @@ def cpf() -> str:
     return f"{text[:3]}.{text[3:6]}.{text[6:9]}-{text[9:]}"
 
 
-def account(opened: str = OLD) -> dict:
+def account(opened: str = OLD, document: str = None) -> dict:
     return {"participant": f"{random.randint(0, 99999999):08d}", "branch": "0001",
             "account_number": str(random.randint(10000, 99999999)), "opening_date": opened,
-            "owner": {"document_number": cpf()}}
+            "owner": {"document_number": document or cpf()}}
 
 
 def payer() -> dict:
@@ -107,12 +107,18 @@ def main() -> None:
     show("3. Golpe do falso parente", "Aparelho de sempre, R$ 3.000 para uma conta aberta há 2 dias.",
          pix(victim, mule, 300000, NOW))
 
-    # 4. Conta laranja
-    hub = account()
+    # 4. Concentração de pagadores: a mesma cena, dois recebedores
+    hub = account(opened=(NOW - timedelta(days=3)).isoformat())
     for minute in range(9):
         pix(payer(), hub, 9000, NOW + timedelta(minutes=minute))
-    show("4. Conta laranja", "O 10º pagador diferente em menos de uma hora para a mesma conta.",
+    show("4a. Conta de CPF aberta há 3 dias", "O 10º pagador diferente em menos de uma hora.",
          pix(payer(), hub, 9000, NOW + timedelta(minutes=10)))
+
+    shop = account(document="12.345.678/0001-95")
+    for minute in range(9):
+        pix(payer(), shop, 3500, NOW + timedelta(minutes=minute))
+    show("4b. Lanchonete antiga (CNPJ)", "O mesmo movimento: o 10º cliente diferente na hora do almoço.",
+         pix(payer(), shop, 3500, NOW + timedelta(minutes=10)))
 
     # 5. O exemplo do enunciado
     example_payer = payer()

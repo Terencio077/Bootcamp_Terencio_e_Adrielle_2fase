@@ -26,12 +26,12 @@ class PixIdConflict(QIException):
         super().__init__(title, self.code, http_status, description, translation)
 
 
-class InvalidTransactionDate(QIException):
+class InvalidDateTime(QIException):
     code = "QIT003022"
 
-    def __init__(self, value) -> None:
-        title = "Invalid transaction date"
+    def __init__(self, field, value) -> None:
+        title = "Invalid date"
         http_status = 422
-        description = f"The transaction_date {value} is not an ISO 8601 date with a timezone offset."
-        translation = "A data da transação precisa estar no formato ISO 8601 com fuso horário."
+        description = f"The {field} {value} is not an ISO 8601 date with a timezone offset."
+        translation = f"O campo {field} precisa estar no formato ISO 8601 com fuso horário."
         super().__init__(title, self.code, http_status, description, translation)

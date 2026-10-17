@@ -21,6 +21,12 @@ TRANSACTION = "TRANSACTION"   # "A transação é legítima?"
 SCORE = "SCORE"                       # soma pontos no eixo (podem ser negativos: confiança)
 FORCE_TWO_FACTOR = "FORCE_TWO_FACTOR"  # piso de 2FA: abaixo disso não aprova (regulatório)
 REJECT = "REJECT"                     # risco claro: recusa sozinha
+# Efeitos de FALHA TÉCNICA (uma regra quebrou). Têm nome próprio para não se
+# confundirem com evidência de risco: a decisão é a mesma de REJECT e de
+# FORCE_TWO_FACTOR, mas nada que olhe o passado (como a TX03) pode tratar
+# um defeito nosso como sinal de fraude do recebedor.
+FAILSAFE_REJECT = "FAILSAFE_REJECT"
+FAILSAFE_TWO_FACTOR = "FAILSAFE_TWO_FACTOR"
 
 
 @dataclass(frozen=True)

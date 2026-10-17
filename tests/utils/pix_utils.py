@@ -97,6 +97,10 @@ def warm_up_payer(payer: dict, days: int = 6, amount: int = 10000, start: dateti
     confiável (ID02). Devolve o recebedor, para o teste reaproveitar.
     """
     payee = new_account()
+    # Um Pix antigo (35 dias) para o relacionamento com o recebedor já ter
+    # passado do mínimo de 30 dias exigido pela recorrência (TR01).
+    first = send(build_pix(payer, payee, amount, start - timedelta(days=35)))
+    assert first["status"] == "approved", first
     for day in range(days, 0, -1):
         analysis = send(build_pix(payer, payee, amount, start - timedelta(days=day)))
         assert analysis["status"] == "approved", analysis

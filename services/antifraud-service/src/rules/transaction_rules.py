@@ -11,7 +11,7 @@ from typing import Optional
 
 from rules.context import APPROVED, History, PixRequest
 from rules.parameters import Parameters
-from rules.rule import REJECT, TRANSACTION, Rule, RuleHit
+from rules.rule import FORCE_TWO_FACTOR, TRANSACTION, Rule, RuleHit
 
 
 class YoungDestination(Rule):
@@ -41,37 +41,61 @@ class YoungDestination(Rule):
         return None
 
 
-class MuleAccount(Rule):
-    """TX02 — muitos pagadores diferentes mandando para a mesma conta em pouco tempo.
+class PayerConcentration(Rule):
+    """TX02 — muitos pagadores diferentes tentando pagar a mesma conta em pouco tempo.
 
-    É o desenho da conta laranja vista do lado de quem recebe: dezenas de
-    vítimas pagando o mesmo "boleto falso" ou o mesmo "produto" que não
-    existe. Nenhuma das vítimas parece estranha sozinha; o destino parece.
+    É o que o código observa de fato: concentração de pagadores. Ela
+    aparece numa conta laranja (dezenas de vítimas pagando o mesmo "produto"
+    que não existe) e também numa lanchonete na hora do almoço. Por isso a
+    regra não decide sozinha e o tipo do recebedor contextualiza:
+
+    • CPF recebendo de muita gente é incomum: pesa mais cedo;
+    • CNPJ recebendo de muita gente é o normal do comércio: só pesa em
+      volumes bem maiores, e pouco.
+
+    A idade da conta não entra aqui porque já pesa na TX01; as duas somam.
+    Uma conta de CPF aberta há dias recebendo de dez pessoas na mesma hora
+    passa do limite de recusa pela combinação, não por um sinal só.
+    Conta quem TENTOU pagar (inclusive recusados): a demanda pela conta é
+    o sinal, independentemente do que o motor decidiu.
     """
 
     code = "TX02"
     axis = TRANSACTION
-    name = "Conta laranja"
+    name = "Concentração de pagadores"
 
     def evaluate(self, pix: PixRequest, history: History, parameters: Parameters) -> Optional[RuleHit]:
         payers = 1 + history.destination.distinct_other_payers_in_window
-        evidence = {"distinct_payers": payers, "window_minutes": parameters.mule_window_minutes}
+        is_person = len(pix.destination_document) == 11
+        evidence = {"distinct_payers": payers, "window_minutes": parameters.concentration_window_minutes,
+                    "destination_type": "cpf" if is_person else "cnpj"}
 
-        if payers >= parameters.mule_reject_payers:
-            return self.hit(0, "A conta de destino recebeu de muitos pagadores diferentes em pouco tempo.",
-                            evidence, effect=REJECT)
-        if payers >= parameters.mule_score_payers:
-            return self.hit(parameters.mule_points,
-                            "A conta de destino está recebendo de vários pagadores diferentes em pouco tempo.",
-                            evidence)
+        if is_person:
+            tiers = [(parameters.concentration_person_high_payers, parameters.concentration_person_high_points),
+                     (parameters.concentration_person_payers, parameters.concentration_person_points)]
+        else:
+            tiers = [(parameters.concentration_company_high_payers, parameters.concentration_company_high_points),
+                     (parameters.concentration_company_payers, parameters.concentration_company_points)]
+
+        for minimum, points in tiers:
+            if payers >= minimum:
+                return self.hit(points, "Vários pagadores diferentes tentando pagar esta conta em pouco tempo.",
+                                evidence)
         return None
 
 
 class RejectedDestination(Rule):
-    """TX03 — esta conta de destino já teve Pix recusados recentemente.
+    """TX03 — esta conta já teve Pix recusados POR MOTIVOS DO LADO DA TRANSAÇÃO.
 
-    O motor aprende com as próprias decisões: um destino que já foi barrado
-    por outras regras continua suspeito para os próximos pagadores.
+    Uma recusa causada pelo pagador (viagem impossível, rajada) não diz nada
+    sobre quem recebe, e não conta aqui. Só contam recusas em que a nota da
+    transação, SEM os pontos da própria TX03, já bastava para recusar —
+    assim a regra não se alimenta das próprias decisões. E precisa de
+    pagadores DIFERENTES: uma vítima só não marca a conta. O peso é
+    limitado; ela soma, não decide.
+
+    Quem filtra as recusas é o repository (ver HistoryRepository): aqui
+    chega só a contagem.
     """
 
     code = "TX03"
@@ -79,15 +103,12 @@ class RejectedDestination(Rule):
     name = "Destino com recusas recentes"
 
     def evaluate(self, pix: PixRequest, history: History, parameters: Parameters) -> Optional[RuleHit]:
-        rejected = history.destination.rejected_in_window
-        if rejected == 0:
+        payers = history.destination.rejected_payers_in_window
+        if payers < parameters.rejected_destination_min_payers:
             return None
-        evidence = {"rejected_pix": rejected, "window_days": parameters.rejected_destination_days}
-        if rejected >= parameters.rejected_destination_many:
-            return self.hit(parameters.rejected_destination_many_points,
-                            "A conta de destino teve vários Pix recusados recentemente.", evidence)
         return self.hit(parameters.rejected_destination_points,
-                        "A conta de destino teve Pix recusado recentemente.", evidence)
+                        "Pix de outros pagadores para esta conta foram recusados recentemente por risco da transação.",
+                        {"rejected_payers": payers, "window_days": parameters.rejected_destination_days})
 
 
 class OutOfProfileAmount(Rule):
@@ -132,6 +153,12 @@ class UnusualDailySum(Rule):
     Pega o que o TX04 não vê: vários Pix médios que, somados, esvaziam a
     conta. Compara as últimas 24 h com a média diária dos 29 dias antes
     delas, e só para quem tem pelo menos uma semana de histórico.
+
+    Só dispara quando é a SOMA que estoura o limite. Se o Pix atual sozinho
+    já chega ao limite, o caso é de "valor fora do perfil" (TX04), e contar
+    o mesmo Pix nas duas regras puniria duas vezes um único pagamento grande
+    — como o empréstimo ao amigo de sempre, que deve pedir 2FA, e não ser
+    recusado.
     """
 
     code = "TX05"
@@ -161,7 +188,7 @@ class UnusualDailySum(Rule):
 
         daily_average = baseline_total / 29
         threshold = max(parameters.daily_sum_factor * daily_average, parameters.daily_sum_floor_cents)
-        if day_total <= threshold:
+        if day_total <= threshold or pix.amount_cents >= threshold:
             return None
 
         return self.hit(parameters.daily_sum_points,
@@ -214,6 +241,17 @@ class NightLimit(Rule):
     com o celular, desbloqueia com o próprio rosto e passaria no 2FA. Por
     isso ele mora no eixo da TRANSAÇÃO, e não no da identidade. Soma o que
     já saiu na mesma noite, para não ser driblado com vários Pix menores.
+
+    É LIMITE, não suspeita: o efeito é um piso de 2FA que nenhum desconto de
+    confiança derruba, mais os pontos para somar com outros sinais.
+
+    HIPÓTESES, porque o contrato não informa a configuração do cliente:
+    • usa o padrão (R$ 1.000, 20h-6h); o cliente pode ter mudado o horário
+      para 22h-6h ou pedido aumento, e por isso o motor pede confirmação em
+      vez de recusar;
+    • aplica só a CPF: a norma também vale para MEI, que não dá para
+      distinguir de outros CNPJs pelo payload.
+    Não é o cumprimento completo da norma, e sim a aproximação possível.
     """
 
     code = "TX07"
@@ -234,9 +272,10 @@ class NightLimit(Rule):
             return None
 
         return self.hit(parameters.night_points,
-                        "Pix noturno de pessoa física acima do limite noturno padrão.",
+                        "Pix noturno de pessoa física acima do limite noturno padrão: confirmação obrigatória.",
                         {"night_total_cents": night_total, "night_limit_cents": parameters.night_limit_cents,
-                         "local_hour": pix.local_hour})
+                         "local_hour": pix.local_hour, "assumed_default_limit": True},
+                        effect=FORCE_TWO_FACTOR)
 
 
 class FirstPaymentToPayee(Rule):
@@ -284,5 +323,5 @@ def night_window_start(moment: datetime, parameters: Parameters) -> Optional[dat
     return None
 
 
-TRANSACTION_RULES = [YoungDestination(), MuleAccount(), RejectedDestination(), OutOfProfileAmount(),
+TRANSACTION_RULES = [YoungDestination(), PayerConcentration(), RejectedDestination(), OutOfProfileAmount(),
                      UnusualDailySum(), Structuring(), NightLimit(), FirstPaymentToPayee()]

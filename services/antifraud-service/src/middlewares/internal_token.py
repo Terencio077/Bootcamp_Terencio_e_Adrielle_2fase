@@ -1,3 +1,5 @@
+import hmac
+
 from fastapi import FastAPI, Request
 
 from constants import BYPASS_ENDPOINTS, INTERNAL_TOKEN
@@ -15,6 +17,11 @@ def register_internal_token_middleware(application: FastAPI) -> None:
     a exceção: dentro de um middleware, ninguém está escutando pra traduzir
     o erro — quem traduz são os exception handlers, que rodam mais pra
     dentro. Levantar aqui viraria um 500.
+
+    A comparação usa hmac.compare_digest, que leva o mesmo tempo dê o
+    token certo ou errado: com `!=`, a resposta sai um pouco mais rápido
+    quando o primeiro caractere já difere, e isso pode vazar o segredo aos
+    poucos para quem mede o tempo de muitas tentativas.
     """
 
     @application.middleware("http")
@@ -24,7 +31,8 @@ def register_internal_token_middleware(application: FastAPI) -> None:
         if request.method == "OPTIONS" or is_public:
             return await call_next(request)
 
-        if request.headers.get("INTERNAL-TOKEN") != INTERNAL_TOKEN:
+        received = request.headers.get("INTERNAL-TOKEN") or ""
+        if not hmac.compare_digest(received.encode(), INTERNAL_TOKEN.encode()):
             return qi_exception_to_response(ForbiddenNotInternal())
 
         return await call_next(request)

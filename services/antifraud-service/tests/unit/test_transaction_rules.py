@@ -2,14 +2,14 @@
 
 from datetime import timedelta
 
-from builders import NOW, PAYER, history, known_payer, make_pix, past
+from builders import NOW, PAYER, history, known_payer, long_relationship, make_pix, past
 
 from rules import DEFAULT_PARAMETERS as P
 from rules import REJECTED, TWO_FACTOR_REQUIRED
-from rules.rule import REJECT
+from rules.rule import FORCE_TWO_FACTOR
 from rules.transaction_rules import (
     FirstPaymentToPayee,
-    MuleAccount,
+    PayerConcentration,
     NightLimit,
     OutOfProfileAmount,
     RejectedDestination,
@@ -38,29 +38,50 @@ def test_destino_antigo_nao_pontua():
                                        history(), P) is None
 
 
-# ── TX02 Conta laranja ─────────────────────────────────────────────────
+# ── TX02 Concentração de pagadores ─────────────────────────────────────
 
-def test_quatro_pagadores_para_o_mesmo_destino_ainda_e_normal():
-    assert MuleAccount().evaluate(make_pix(), history(distinct_other_payers=3), P) is None
-
-
-def test_quinto_pagador_diferente_na_hora_pontua():
-    assert MuleAccount().evaluate(make_pix(), history(distinct_other_payers=4), P).points == P.mule_points
+COMPANY = "12345678000195"
 
 
-def test_decimo_pagador_diferente_na_hora_bloqueia():
-    assert MuleAccount().evaluate(make_pix(), history(distinct_other_payers=9), P).effect == REJECT
+def test_cpf_com_quatro_pagadores_na_hora_e_normal():
+    assert PayerConcentration().evaluate(make_pix(), history(distinct_other_payers=3), P) is None
+
+
+def test_cpf_com_cinco_pagadores_diferentes_na_hora_pontua():
+    hit = PayerConcentration().evaluate(make_pix(), history(distinct_other_payers=4), P)
+    assert hit.points == P.concentration_person_points
+
+
+def test_cpf_com_dez_pagadores_pontua_mais_mas_nao_bloqueia_sozinho():
+    hit = PayerConcentration().evaluate(make_pix(), history(distinct_other_payers=9), P)
+    assert hit.points == P.concentration_person_high_points
+    assert hit.effect == "SCORE"
+
+
+def test_legitimo_comercio_com_dez_pagadores_na_hora_nao_pontua():
+    # A lanchonete na hora do almoço: o que o revisor reproduziu como bloqueio indevido.
+    assert PayerConcentration().evaluate(make_pix(destination_document=COMPANY),
+                                         history(distinct_other_payers=9), P) is None
+
+
+def test_comercio_com_volume_muito_alto_pontua_pouco():
+    hit = PayerConcentration().evaluate(make_pix(destination_document=COMPANY),
+                                        history(distinct_other_payers=29), P)
+    assert hit.points == P.concentration_company_high_points
 
 
 # ── TX03 Destino com recusas ───────────────────────────────────────────
+# Quem filtra a CAUSA das recusas é o repository (testado na integração);
+# aqui chega a contagem de pagadores distintos já filtrada.
 
-def test_destino_com_uma_recusa():
-    assert RejectedDestination().evaluate(make_pix(), history(rejected=1), P).points == P.rejected_destination_points
+def test_uma_vitima_so_nao_marca_o_destino():
+    assert RejectedDestination().evaluate(make_pix(), history(rejected=1), P) is None
 
 
-def test_destino_com_varias_recusas():
-    hit = RejectedDestination().evaluate(make_pix(), history(rejected=3), P)
-    assert hit.points == P.rejected_destination_many_points
+def test_dois_pagadores_recusados_marcam_o_destino_com_peso_limitado():
+    for payers in (2, 10):
+        hit = RejectedDestination().evaluate(make_pix(), history(rejected=payers), P)
+        assert hit.points == P.rejected_destination_points
 
 
 # ── TX04 Valor fora do perfil ──────────────────────────────────────────
@@ -105,6 +126,10 @@ def test_soma_do_dia_muito_acima_da_media_pontua():
     assert hit.evidence["day_total_cents"] == 240000
 
 
+def test_um_pix_grande_sozinho_e_caso_do_tx04_e_nao_da_soma_do_dia():
+    assert UnusualDailySum().evaluate(make_pix(amount_cents=900000), history(*month_of_small_pix()), P) is None
+
+
 def test_soma_do_dia_abaixo_do_piso_nao_pontua():
     assert UnusualDailySum().evaluate(make_pix(amount_cents=150000), history(*month_of_small_pix()), P) is None
 
@@ -136,8 +161,10 @@ def test_valor_fora_da_faixa_nao_e_fracionamento():
 NIGHT = NOW.replace(hour=22, minute=15)
 
 
-def test_pix_noturno_acima_de_1000_reais():
-    assert NightLimit().evaluate(make_pix(amount_cents=100001, transaction_date=NIGHT), history(), P) is not None
+def test_pix_noturno_acima_de_1000_reais_e_piso_de_2fa():
+    hit = NightLimit().evaluate(make_pix(amount_cents=100001, transaction_date=NIGHT), history(), P)
+    assert hit.effect == FORCE_TWO_FACTOR
+    assert hit.points == P.night_points
 
 
 def test_pix_noturno_de_1000_reais_cabe_no_limite():
@@ -186,12 +213,29 @@ def test_primeiro_pix_nao_conta_para_quem_o_motor_nunca_viu():
 # ── Confiança ──────────────────────────────────────────────────────────
 
 def test_recebedor_recorrente_desconta():
-    hit = RecurringPayee().evaluate(make_pix(), history(*known_payer(3)), P)
+    hit = RecurringPayee().evaluate(make_pix(), history(*long_relationship()), P)
     assert hit.points == P.recurring_payee_points
 
 
-def test_recebedor_com_duas_vezes_ainda_nao_e_recorrente():
+def test_furo_tres_dias_seguidos_ainda_e_relacionamento_novo():
+    # Decisão do time: menos de 30 dias desde o primeiro Pix aprovado = ainda é novo.
+    assert RecurringPayee().evaluate(make_pix(), history(*known_payer(3)), P) is None
+
+
+def test_relacionamento_com_29_dias_ainda_e_novo_e_com_30_ja_vale():
+    young = [past(minutes_ago=60 * 24 * d) for d in (1, 15, 29)]
+    mature = [past(minutes_ago=60 * 24 * d) for d in (1, 15, 30)]
+    assert RecurringPayee().evaluate(make_pix(), history(*young), P) is None
+    assert RecurringPayee().evaluate(make_pix(), history(*mature), P).points == P.recurring_payee_points
+
+
+def test_recebedor_pago_em_dois_dias_ainda_nao_e_recorrente():
     assert RecurringPayee().evaluate(make_pix(), history(*known_payer(2)), P) is None
+
+
+def test_furo_aquecimento_tres_pix_na_mesma_tarde_nao_e_recorrencia():
+    warming = [past(minutes_ago=10 * (i + 1)) for i in range(5)]
+    assert RecurringPayee().evaluate(make_pix(), history(*warming), P) is None
 
 
 def test_recorrencia_so_conta_pix_aprovado():
@@ -201,3 +245,45 @@ def test_recorrencia_so_conta_pix_aprovado():
 
 def test_mesma_titularidade_desconta():
     assert OwnAccount().evaluate(make_pix(destination_document=PAYER), history(), P).points == P.own_account_points
+
+
+# ── TR01 materialidade (decisão do time: 5x, a mesma régua do TX04) ─────
+# Os casos da tabela que o time usou para escolher o número.
+
+def rent_history(amount: int) -> list:
+    return [past(minutes_ago=60 * 24 * 30 * month, amount_cents=amount) for month in (1, 2, 3)]
+
+
+def recurring_effect(current: int, previous: int) -> int:
+    hit = RecurringPayee().evaluate(make_pix(amount_cents=current), history(*rent_history(previous)), P)
+    return hit.points
+
+
+def test_legitimo_aluguel_com_reajuste_mantem_o_desconto():
+    assert recurring_effect(165000, 150000) == P.recurring_payee_points
+
+
+def test_legitimo_restante_do_empreiteiro_mantem_o_desconto():
+    assert recurring_effect(70000, 30000) == P.recurring_payee_points
+
+
+def test_legitimo_compra_maior_no_mercado_de_sempre_mantem_o_desconto():
+    assert recurring_effect(30000, 10000) == P.recurring_payee_points
+
+
+def test_exatamente_5x_ainda_mantem_o_desconto():
+    assert recurring_effect(50000, 10000) == P.recurring_payee_points
+
+
+def test_emprestimo_ao_amigo_de_sempre_perde_o_desconto():
+    assert recurring_effect(200000, 5000) == 0
+
+
+def test_furo_aquecimento_com_1_real_nao_avaliza_5000():
+    assert recurring_effect(500000, 100) == 0
+
+
+def test_furo_aquecimento_com_600_reais_nao_avaliza_5000():
+    hit = RecurringPayee().evaluate(make_pix(amount_cents=500000), history(*rent_history(60000)), P)
+    assert hit.points == 0
+    assert hit.evidence["ratio"] == 8.33

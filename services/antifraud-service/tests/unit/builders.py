@@ -51,7 +51,12 @@ def history(*payer_pix: PastPix, distinct_other_payers: int = 0, rejected: int =
     ordered = sorted(payer_pix, key=lambda item: item.transaction_date, reverse=True)
     return History(payer_pix=ordered,
                    destination=DestinationHistory(distinct_other_payers_in_window=distinct_other_payers,
-                                                  rejected_in_window=rejected))
+                                                  rejected_payers_in_window=rejected))
+
+
+def long_relationship(**overrides) -> list:
+    """Pagador que paga o mesmo recebedor uma vez por mês, há três meses."""
+    return [past(minutes_ago=60 * 24 * 30 * month, **overrides) for month in (1, 2, 3)]
 
 
 def known_payer(count: int = 6, **overrides) -> list:

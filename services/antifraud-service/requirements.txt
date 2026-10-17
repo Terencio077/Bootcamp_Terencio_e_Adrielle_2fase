@@ -15,7 +15,5 @@ SQLAlchemy==2.0.23
 # 2.9.10 e a primeira serie com pacote pronto para ARM: no Mac M1/M2/M3
 # a 2.9.5 tentaria compilar do zero e o build quebrava.
 psycopg2-binary==2.9.10
-# O requests e com que este servico chama OUTROS servicos por HTTP.
-# So os connectors (src/connectors/) podem usa-lo — nenhuma chamada
-# externa fica solta no meio do codigo.
-requests==2.32.3
+# Sem `requests`: o motor não chama nenhum serviço externo no caminho do
+# Pix (a decisão sai em milissegundos, só com o banco próprio).

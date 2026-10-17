@@ -2,7 +2,7 @@
 
 from datetime import datetime, timedelta
 
-from builders import NOW, history, known_payer, make_pix, past
+from builders import NOW, history, known_payer, long_relationship, make_pix, past
 
 from rules import APPROVED, REJECTED, TWO_FACTOR_REQUIRED, DecisionEngine
 from rules.rule import FORCE_TWO_FACTOR, IDENTITY, REJECT, TRANSACTION, Rule, RuleHit
@@ -114,10 +114,111 @@ def test_golpe_dono_da_conta_pagando_conta_nova_e_recusado_sem_2fa():
 
 
 def test_aparelho_novo_pagando_recebedor_de_sempre_pede_2fa():
-    decision = engine.evaluate(make_pix(device_id="device-b", amount_cents=50000), history(*known_payer()))
+    decision = engine.evaluate(make_pix(device_id="device-b", amount_cents=50000), history(*known_payer(), *long_relationship()))
     assert decision.status == TWO_FACTOR_REQUIRED
     assert decision.transaction_score == 0
 
 
 def test_pix_pequeno_do_aparelho_de_sempre_aprova():
     assert engine.evaluate(make_pix(), history(*known_payer())).status == APPROVED
+
+
+# ── política de falha por eixo ─────────────────────────────────────────
+
+class BrokenIdentityRule(Rule):
+    code, axis = "BR02", IDENTITY
+
+    def evaluate(self, pix, history, parameters):
+        raise KeyError()
+
+
+def test_regra_de_transacao_quebrada_em_pix_alto_recusa():
+    decision = DecisionEngine(rules=[BrokenRule()]).evaluate(make_pix(amount_cents=100000), history())
+    assert decision.status == REJECTED
+
+
+def test_regra_de_identidade_quebrada_pede_2fa_mesmo_em_pix_alto():
+    decision = DecisionEngine(rules=[BrokenIdentityRule()]).evaluate(make_pix(amount_cents=900000), history())
+    assert decision.status == TWO_FACTOR_REQUIRED
+
+
+# ── regulação não é compensável por confiança ──────────────────────────
+
+NIGHT = NOW.replace(hour=22, minute=15)
+
+
+def rent_payer() -> list:
+    """Pagador que paga o mesmo recebedor (aluguel de R$ 1.500) há meses."""
+    return known_payer(amount_cents=150000) + long_relationship(amount_cents=150000)
+
+
+def test_furo_noturno_acima_do_limite_para_recebedor_recorrente_nao_aprova():
+    # O furo que o revisor reproduziu: +35 do noturno, -30 da recorrência, aprovado.
+    decision = engine.evaluate(make_pix(amount_cents=150000, transaction_date=NIGHT), history(*rent_payer()))
+    assert {"TX07", "TR01"} <= {hit.code for hit in decision.hits}
+    assert decision.status == TWO_FACTOR_REQUIRED
+
+
+def test_legitimo_noturno_dentro_do_limite_para_recebedor_recorrente_aprova():
+    decision = engine.evaluate(make_pix(amount_cents=90000, transaction_date=NIGHT), history(*rent_payer()))
+    assert decision.status == APPROVED
+
+
+# ── nenhum sinal isolado bloqueia; a combinação sim ────────────────────
+
+def friends_burst() -> list:
+    return [past(minutes_ago=i + 1, amount_cents=5000, destination_document=f"0000000000{i}") for i in range(9)]
+
+
+def test_legitimo_churrasco_dividido_com_dez_amigos_pede_2fa_e_nao_recusa():
+    pix = make_pix(amount_cents=5000, destination_document="99999999999")
+    decision = engine.evaluate(pix, history(*known_payer(), *friends_burst()))
+    assert decision.status == TWO_FACTOR_REQUIRED
+
+
+def test_rajada_de_aparelho_nao_confiavel_recusa_pela_combinacao():
+    burst = [past(minutes_ago=i + 1, amount_cents=5000, device_id="device-b", status=TWO_FACTOR_REQUIRED)
+             for i in range(9)]
+    decision = engine.evaluate(make_pix(amount_cents=5000, device_id="device-b"), history(*known_payer(), *burst))
+    assert decision.status == REJECTED
+
+
+COMPANY = "12345678000195"
+
+
+def test_conta_de_cpf_aberta_ha_3_dias_recebendo_de_dez_pagadores_recusa_pela_combinacao():
+    pix = make_pix(destination_opening_date=NOW - timedelta(days=3), destination_document="55566677788")
+    decision = engine.evaluate(pix, history(*known_payer(), distinct_other_payers=9))
+    assert {"TX01", "TX02"} <= {hit.code for hit in decision.hits}
+    assert decision.status == REJECTED
+
+
+def test_legitimo_cpf_novo_recebendo_dos_primeiros_clientes_nao_e_recusado():
+    pix = make_pix(destination_opening_date=NOW - timedelta(days=5), destination_document="55566677788")
+    decision = engine.evaluate(pix, history(*known_payer(), distinct_other_payers=4))
+    assert decision.status == TWO_FACTOR_REQUIRED
+
+
+def test_legitimo_comercio_antigo_recebendo_de_dez_pagadores_aprova_o_cliente_habitual():
+    habitual = known_payer(destination_document=COMPANY)
+    pix = make_pix(destination_document=COMPANY)
+    decision = engine.evaluate(pix, history(*habitual, distinct_other_payers=9))
+    assert decision.status == APPROVED
+
+
+# ── Política B: o relacionamento precisa ter tamanho ───────────────────
+
+def test_tres_pix_de_1_real_em_dias_diferentes_nao_aprovam_5000():
+    # O experimento da revisão externa: antes, TX04 +40 e TR01 -30 davam 10 e aprovavam.
+    warming = [past(minutes_ago=60 * 24 * day, amount_cents=100) for day in (1, 2, 3)]
+    others = [past(minutes_ago=60 * 24 * day, destination_document="11122233344") for day in (4, 5, 6)]
+    decision = engine.evaluate(make_pix(amount_cents=500000), history(*warming, *others))
+    assert decision.status == TWO_FACTOR_REQUIRED
+    assert decision.transaction_score >= 40
+
+
+def test_legitimo_emprestimo_ao_amigo_de_sempre_pede_2fa_e_nao_recusa():
+    friend = [past(minutes_ago=60 * 24 * day, amount_cents=5000) for day in (1, 8, 15, 22, 29)]
+    decision = engine.evaluate(make_pix(amount_cents=200000), history(*friend))
+    assert decision.status == TWO_FACTOR_REQUIRED
+    assert "TX05" not in {hit.code for hit in decision.hits}   # um Pix grande não conta duas vezes

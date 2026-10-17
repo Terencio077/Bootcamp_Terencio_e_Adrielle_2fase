@@ -15,12 +15,26 @@ servidor — e é isso que as deixa:
 """
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 
 APPROVED = "APPROVED"
 TWO_FACTOR_REQUIRED = "TWO_FACTOR_REQUIRED"
 REJECTED = "REJECTED"
+
+# Referência para CONTAR DIAS (recorrência de recebedor e de aparelho):
+# horário de Brasília, UTC-3 fixo (o Brasil não tem horário de verão desde
+# 2019). Contar "dias diferentes" com o fuso que veio em cada Pix deixaria o
+# mesmo instante, escrito com offsets diferentes, virar três dias. As regras
+# de HORA DO DIA (noite, madrugada) continuam no relógio de quem paga — o
+# fuso do próprio Pix —, porque a pergunta delas é outra.
+BUSINESS_TIMEZONE = timezone(timedelta(hours=-3))
+
+
+def business_date(moment: datetime) -> date:
+    """O dia do calendário de Brasília em que o instante caiu."""
+    return moment.astimezone(BUSINESS_TIMEZONE).date()
+
 
 # Chave de uma conta em qualquer banco: ISPB + agência + conta.
 AccountKey = Tuple[str, str, str]
@@ -87,8 +101,8 @@ class PastPix:
 class DestinationHistory:
     """O passado da conta que vai RECEBER, olhando todos os pagadores."""
 
-    distinct_other_payers_in_window: int = 0   # pagadores diferentes do atual, na janela da conta laranja
-    rejected_in_window: int = 0                # Pix recusados para esta conta, na janela de recusas
+    distinct_other_payers_in_window: int = 0   # pagadores diferentes do atual, na janela de concentração
+    rejected_payers_in_window: int = 0         # pagadores distintos recusados por risco da transação
 
 
 @dataclass(frozen=True)

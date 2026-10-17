@@ -59,7 +59,7 @@ CREATE TABLE pix_transactions(
     ip                              VARCHAR(45) NOT NULL,
     latitude                        NUMERIC(9, 6),
     longitude                       NUMERIC(9, 6),
-    received_at                     TIMESTAMP NOT NULL DEFAULT(NOW()),
+    received_at                     TIMESTAMPTZ NOT NULL DEFAULT(NOW()),
     CHECK ((latitude IS NULL) = (longitude IS NULL))
 );
 
@@ -86,19 +86,23 @@ CREATE TABLE pix_analyses(
     decision_reason                 VARCHAR(500) NOT NULL,
     rules_version                   VARCHAR(20) NOT NULL,
     latency_ms                      NUMERIC(10, 2) NOT NULL,
-    created_at                      TIMESTAMP NOT NULL DEFAULT(NOW())
+    created_at                      TIMESTAMPTZ NOT NULL DEFAULT(NOW())
 );
 
-CREATE INDEX pix_analyses_by_status ON pix_analyses(analysis_status_id, pix_transaction_id);
+-- Sem índice extra aqui: as consultas chegam em pix_analyses sempre pela
+-- transação (o UNIQUE de pix_transaction_id já é o índice dessa junção).
 
 -- effect: SCORE soma pontos no eixo; FORCE_TWO_FACTOR põe um piso de 2FA
--- (regra regulatória); REJECT bloqueia sozinha (risco claro).
+-- (regra regulatória); REJECT bloqueia sozinha (risco claro). Os FAILSAFE_*
+-- registram falha técnica de uma regra: decidem igual, mas não são evidência
+-- de risco e por isso a TX03 não os conta.
 CREATE TABLE rule_hits(
     id                              SERIAL PRIMARY KEY,
     pix_analysis_id                 INTEGER NOT NULL REFERENCES pix_analyses(id),
     rule_code                       VARCHAR(10) NOT NULL,
     risk_axis_id                    INTEGER NOT NULL REFERENCES risk_axes(id),
-    effect                          VARCHAR(20) NOT NULL CHECK (effect IN ('SCORE', 'FORCE_TWO_FACTOR', 'REJECT')),
+    effect                          VARCHAR(20) NOT NULL CHECK (effect IN (
+                                        'SCORE', 'FORCE_TWO_FACTOR', 'REJECT', 'FAILSAFE_TWO_FACTOR', 'FAILSAFE_REJECT')),
     points                          INTEGER NOT NULL,
     reason                          VARCHAR(500) NOT NULL,
     evidence                        JSONB NOT NULL

@@ -9,48 +9,62 @@ confirma com o rosto no aparelho e segue.
 from datetime import timedelta
 from typing import Optional
 
-from rules.context import APPROVED, History, PixRequest
+from rules.context import History, PixRequest
+from rules.device import RECURRING, TRUSTED, device_trust, payer_has_trusted_device
 from rules.parameters import Parameters
-from rules.rule import FORCE_TWO_FACTOR, IDENTITY, REJECT, Rule, RuleHit
+from rules.rule import FORCE_TWO_FACTOR, IDENTITY, Rule, RuleHit
 from rules.geo import haversine_km
 
 
-class NewDevice(Rule):
-    """ID01 — o pagador nunca usou este aparelho.
+class UntrustedDevice(Rule):
+    """ID01 — o Pix sai de um aparelho que ainda não é confiável para este pagador.
 
     Trocar de aparelho é o primeiro passo do roubo de conta: o fraudador
-    entra com a senha num celular dele. Para quem já tem histórico, aparelho
-    novo pesa; para o primeiro Pix que o motor vê, tudo é novo e pesa pouco.
+    entra com a senha num celular dele. O que conta não é "já vimos este
+    aparelho" (uma tentativa que pediu 2FA não prova nada), e sim "este
+    aparelho já teve um Pix aprovado há pelo menos 24 h" (rules/device.py).
+
+    Quanto pesa depende do contexto:
+    • pagador que já tem outro aparelho confiável: é troca de aparelho, +30;
+    • aparelho em uso recorrente (vários dias, uma semana, sem recusa):
+      +15. Reduz a suspeita, mas não confirma nada;
+    • pagador sem nenhum aparelho confiável ainda: tudo é novo para o
+      motor (cold start), +10.
     """
 
     code = "ID01"
     axis = IDENTITY
-    name = "Dispositivo novo"
+    name = "Dispositivo não confiável"
 
     def evaluate(self, pix: PixRequest, history: History, parameters: Parameters) -> Optional[RuleHit]:
-        if any(past.device_id == pix.device_id for past in history.payer_pix):
+        trust = device_trust(pix.device_id, pix.transaction_date, history, parameters)
+        if trust == TRUSTED:
             return None
 
-        if not history.payer_pix:
-            return self.hit(parameters.first_seen_payer_device_points,
-                            "Primeiro Pix deste pagador que o motor analisa; o aparelho ainda não tem histórico.",
-                            {"device_id": pix.device_id, "payer_history": 0})
+        evidence = {"device_id": pix.device_id, "device_state": trust.lower(),
+                    "payer_history": len(history.payer_pix)}
 
-        known_devices = len({past.device_id for past in history.payer_pix})
+        if not payer_has_trusted_device(pix.transaction_date, history, parameters):
+            return self.hit(parameters.first_seen_payer_device_points,
+                            "Pagador ainda sem aparelho confirmado no histórico do motor.", evidence)
+
+        if trust == RECURRING:
+            return self.hit(parameters.recurring_device_points,
+                            "Aparelho em uso há alguns dias, mas ainda sem Pix aprovado que o confirme.",
+                            evidence)
+
         return self.hit(parameters.new_device_points,
-                        "Pix enviado de um aparelho que este pagador nunca usou.",
-                        {"device_id": pix.device_id, "known_devices": known_devices,
-                         "payer_history": len(history.payer_pix)})
+                        "Pix enviado de um aparelho diferente do aparelho confirmado deste pagador.", evidence)
 
 
 class UntrustedDeviceLimit(Rule):
     """ID02 — regulação: aparelho não cadastrado tem teto por Pix e por dia.
 
-    O motor não recebe o cadastro de dispositivos, então ele usa o próprio
-    histórico como cadastro: um aparelho fica confiável depois de um Pix
-    APROVADO a partir dele. Acima do teto, o Pix não pode seguir sem a prova
-    de vida — que é exatamente o 2FA. Por isso o efeito é um piso de 2FA, e
-    não pontos: não é suspeita, é regra.
+    HIPÓTESE: o contrato não informa o cadastro de dispositivos. O motor usa
+    o próprio histórico como cadastro, com o mesmo critério da ID01: só um
+    aparelho CONFIÁVEL (Pix aprovado há 24 h ou mais) escapa do teto. Acima
+    do teto, o Pix precisa da prova de vida — que é o 2FA. É limite, não
+    suspeita: por isso é piso de 2FA, que a confiança não derruba.
     """
 
     code = "ID02"
@@ -58,9 +72,7 @@ class UntrustedDeviceLimit(Rule):
     name = "Limite de dispositivo não cadastrado"
 
     def evaluate(self, pix: PixRequest, history: History, parameters: Parameters) -> Optional[RuleHit]:
-        trusted = any(past.device_id == pix.device_id and past.status == APPROVED
-                      for past in history.payer_pix)
-        if trusted:
+        if device_trust(pix.device_id, pix.transaction_date, history, parameters) == TRUSTED:
             return None
 
         day = history.payer_within(pix.transaction_date, timedelta(hours=24))
@@ -120,9 +132,11 @@ class ImpossibleTravel(Rule):
 class Velocity(Rule):
     """ID04 — rajada: muitos Pix do mesmo pagador em poucos minutos.
 
-    Cliente de verdade não manda dez Pix em dez minutos; quem esvazia uma
-    conta roubada, ou um robô, manda. Conta TODAS as tentativas, inclusive
-    as recusadas: insistir depois de uma recusa é justamente o sinal.
+    Conta TODAS as tentativas, inclusive as recusadas: insistir depois de
+    uma recusa é justamente o sinal. Não bloqueia sozinha: dividir a conta
+    do churrasco com dez amigos em dez minutos é legítimo. O 2FA é a
+    resposta certa aqui, porque também barra automação; a recusa só vem
+    somada a outro sinal (ex.: aparelho não confiável).
     """
 
     code = "ID04"
@@ -134,13 +148,11 @@ class Velocity(Rule):
         count = 1 + len(history.payer_within(pix.transaction_date, window))
         evidence = {"pix_in_window": count, "window_minutes": parameters.velocity_window_minutes}
 
-        if count >= parameters.velocity_reject_count:
-            return self.hit(0, "Volume de Pix em poucos minutos típico de conta sendo esvaziada ou de automação.",
-                            evidence, effect=REJECT)
-
-        if count >= parameters.velocity_two_factor_count:
+        if count >= parameters.velocity_high_count:
+            return self.hit(parameters.velocity_high_points, "Volume muito alto de Pix deste pagador em poucos minutos.",
+                            evidence)
+        if count >= parameters.velocity_count:
             return self.hit(parameters.velocity_points, "Muitos Pix deste pagador em poucos minutos.", evidence)
-
         return None
 
 
@@ -189,4 +201,4 @@ class UnusualDawn(Rule):
                         {"local_hour": pix.local_hour, "payer_history": len(history.payer_pix)})
 
 
-IDENTITY_RULES = [NewDevice(), UntrustedDeviceLimit(), ImpossibleTravel(), Velocity(), NewChannel(), UnusualDawn()]
+IDENTITY_RULES = [UntrustedDevice(), UntrustedDeviceLimit(), ImpossibleTravel(), Velocity(), NewChannel(), UnusualDawn()]

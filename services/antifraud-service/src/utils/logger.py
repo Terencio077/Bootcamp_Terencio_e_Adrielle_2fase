@@ -8,7 +8,7 @@ from utils.request_context import get_request_id
 # O "[%(request_id)s]" é o identificador da requisição que gerou a linha
 # — quem o preenche é o filtro logo abaixo. Uma linha sai assim:
 #
-#   2026-09-01 12:00:00 [INFO] bootcamp-api.middlewares.request_logger
+#   2026-10-17 22:15:00 [INFO] antifraud-service.middlewares.request_logger
 #   [8f3c1e42-...] - ENTROU GET /pix/transaction/pix-000123
 LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s [%(request_id)s] - %(message)s"
 

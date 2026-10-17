@@ -42,7 +42,7 @@ class PixTransaction(Base):
     ip = Column(String(45), nullable=False)
     latitude = Column(Numeric(9, 6), nullable=True)
     longitude = Column(Numeric(9, 6), nullable=True)
-    received_at = Column(DateTime, nullable=False, server_default=func.now())
+    received_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class PixAnalysis(Base):
@@ -57,7 +57,7 @@ class PixAnalysis(Base):
     decision_reason = Column(String(500), nullable=False)
     rules_version = Column(String(20), nullable=False)
     latency_ms = Column(Numeric(10, 2), nullable=False)
-    created_at = Column(DateTime, nullable=False, server_default=func.now())
+    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
 
 
 class RuleHit(Base):

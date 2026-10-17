@@ -1,0 +1,61 @@
+{
+  "device_50_then_500_after_24h": {
+    "seed": {
+      "status": "APPROVED",
+      "identity": 10,
+      "transaction": 0,
+      "rules": [
+        {
+          "code": "ID01",
+          "points": 10,
+          "effect": "SCORE"
+        }
+      ]
+    },
+    "followup": {
+      "status": "APPROVED",
+      "identity": 0,
+      "transaction": 0,
+      "rules": []
+    }
+  },
+  "three_pix_of_1_on_distinct_days_then_5000": {
+    "seeds": [
+      {
+        "status": "APPROVED",
+        "identity": 0,
+        "transaction": 0,
+        "rules": []
+      },
+      {
+        "status": "APPROVED",
+        "identity": 0,
+        "transaction": 0,
+        "rules": []
+      },
+      {
+        "status": "APPROVED",
+        "identity": 0,
+        "transaction": 0,
+        "rules": []
+      }
+    ],
+    "followup": {
+      "status": "APPROVED",
+      "identity": 0,
+      "transaction": 10,
+      "rules": [
+        {
+          "code": "TX04",
+          "points": 40,
+          "effect": "SCORE"
+        },
+        {
+          "code": "TR01",
+          "points": -30,
+          "effect": "SCORE"
+        }
+      ]
+    }
+  }
+}

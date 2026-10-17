@@ -95,6 +95,19 @@ def test_data_sem_fuso_e_422():
     assert response.json()["code"] == "QIT003022"
 
 
+def test_data_de_abertura_sem_fuso_aponta_o_campo_certo():
+    payload = a_pix()
+    payload["destination_account"]["opening_date"] = "2020-01-10T10:00:00"
+    response = post_pix(payload)
+    assert response.status_code == 422
+    assert "destination_account.opening_date" in response.json()["description"]
+
+
+def test_horario_da_analise_sai_com_fuso():
+    analysed_at = send(a_pix())["metadata"]["analysed_at"]
+    assert analysed_at[-6] in "+-" and analysed_at[-3] == ":"
+
+
 def test_geolocalizacao_e_opcional():
     payload = a_pix()
     payload["source"].pop("geolocation", None)
@@ -108,8 +121,10 @@ def test_documento_com_e_sem_pontuacao_e_a_mesma_pessoa():
     digits_only = dict(payer, owner={"document_number": payer["owner"]["document_number"]
                                      .replace(".", "").replace("-", "")})
     analysis = send(build_pix(digits_only, payee, 5000, BASE_TIME.replace(minute=30)))
-    # Se fossem duas pessoas, o motor trataria como primeiro Pix (ID01 de cold start).
-    assert "ID01" not in {hit["rule"] for hit in analysis["metadata"]["rules_triggered"]}
+    # Se fossem duas pessoas, o aparelho seria "novo" para o segundo pagador;
+    # sendo a mesma, ele já foi observado no Pix anterior.
+    device = next(hit for hit in analysis["metadata"]["rules_triggered"] if hit["rule"] == "ID01")
+    assert device["evidence"]["device_state"] == "observed"
 
 
 def test_sem_internal_token_e_403():
@@ -126,3 +141,30 @@ def test_exemplo_do_enunciado_pede_2fa():
     payload["destination_account"] = dict(new_account(opening_date="2026-10-10T09:00:00-03:00"))
     analysis = send(payload)
     assert analysis["status"] == "two_factor_required"
+
+
+def test_mesmo_pix_chegando_varias_vezes_ao_mesmo_tempo_gera_uma_analise_so():
+    from concurrent.futures import ThreadPoolExecutor
+
+    payload = a_pix()
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        responses = list(pool.map(post_pix, [payload] * 6))
+
+    assert sorted(response.status_code for response in responses) == [200, 200, 200, 200, 200, 201]
+    assert len({response.json()["key"] for response in responses}) == 1
+
+
+def test_mesmo_id_com_corpos_diferentes_ao_mesmo_tempo_mantem_so_o_primeiro():
+    # Pagadores diferentes no corpo: as chegadas NÃO dividem a trava do pagador,
+    # e a duplicidade só aparece no UNIQUE(pix_id) do banco, durante o flush.
+    from concurrent.futures import ThreadPoolExecutor
+
+    pix_id = a_pix()["id"]
+    payloads = [dict(a_pix(), id=pix_id) for _ in range(6)]
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        responses = list(pool.map(post_pix, payloads))
+
+    statuses = sorted(response.status_code for response in responses)
+    assert statuses == [201, 409, 409, 409, 409, 409]
+    winner = next(response.json() for response in responses if response.status_code == 201)
+    assert get_pix(pix_id).json() == winner

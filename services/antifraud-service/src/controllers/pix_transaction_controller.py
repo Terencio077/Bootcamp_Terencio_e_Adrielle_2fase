@@ -5,7 +5,7 @@ from sqlalchemy.exc import IntegrityError
 
 from controllers.base_controller import BaseController
 from dtos import analysis_to_dict
-from errors import InvalidTransactionDate, PixIdConflict, PixTransactionNotFound
+from errors import InvalidDateTime, PixIdConflict, PixTransactionNotFound
 from repositories import HistoryRepository, PixRepository
 from rules import DEFAULT_PARAMETERS, DecisionEngine, PixRequest
 from utils.document_number import only_digits
@@ -23,10 +23,11 @@ class PixTransactionController(BaseController):
         3. Motor: regras puras, sem banco.
         4. Gravação: transação + análise + motivos, num commit só.
 
-    O tempo medido (decision_latency_ms) vai do passo 2 ao 3, que é o
-    tempo do motor de verdade, e é gravado em toda análise: o Banco Central
-    acompanha o p95/p99 do tempo de resposta do Pix, e este é o pedaço dele
-    que é nosso.
+    O tempo medido (decision_latency_ms) vai da trava de concorrência até a
+    decisão do motor (passos 2 e 3), e é gravado em toda análise: o Banco
+    Central acompanha o p95/p99 do tempo de resposta do Pix. Ele NÃO inclui
+    a validação do corpo nem a gravação e o commit (passo 4), que vêm depois
+    — o tempo total de cada requisição aparece no log de saída (SAIU ... ms).
     """
 
     def __init__(self) -> None:
@@ -45,26 +46,38 @@ class PixTransactionController(BaseController):
 
         started_at = time.perf_counter()
         pix = to_pix_request(payload)
+        # Antes de ler o histórico: dois Pix do mesmo pagador (ou para o
+        # mesmo destino) analisados ao mesmo tempo esperariam um pelo outro
+        # aqui, e o segundo enxerga o primeiro já gravado.
+        self.history_repository.lock_participants(pix)
+
+        # Quem esperou na trava pode ter esperado justamente a primeira
+        # chegada deste mesmo Pix: relê antes de reanalisar.
+        previous = self.previous_analysis(payload["id"], body_hash)
+        if previous is not None:
+            return previous, False
+
         history = self.history_repository.load(pix, self.engine.parameters)
         decision = self.engine.evaluate(pix, history)
         latency_ms = (time.perf_counter() - started_at) * 1000
 
-        self.pix_repository.save(payload, pix, body_hash, decision, latency_ms)
-        self.logger.info(f"Pix {pix.pix_id}: {decision.status} "
-                         f"(identidade={decision.identity_score}, transação={decision.transaction_score}, "
-                         f"{latency_ms:.1f} ms)")
-
         try:
+            # O save faz flush, e é no flush que o PostgreSQL acusa o
+            # UNIQUE(pix_id) quando outra chegada do mesmo Pix gravou antes
+            # (por exemplo, com outro pagador no corpo, que não divide a
+            # trava). Por isso gravação e commit ficam no mesmo try.
+            self.pix_repository.save(payload, pix, body_hash, decision, latency_ms)
             self.session.commit()
         except IntegrityError:
-            # Duas chegadas simultâneas do mesmo Pix: o UNIQUE(pix_id) deixa
-            # passar uma só, e a outra devolve a análise que ganhou.
             self.session.rollback()
             previous = self.previous_analysis(payload["id"], body_hash)
             if previous is not None:
                 return previous, False
             raise
 
+        self.logger.info(f"Pix {pix.pix_id}: {decision.status} "
+                         f"(identidade={decision.identity_score}, transação={decision.transaction_score}, "
+                         f"{latency_ms:.1f} ms)")
         return self.get(pix.pix_id), True
 
     def get(self, pix_id: str) -> dict:
@@ -87,14 +100,17 @@ class PixTransactionController(BaseController):
         return self.get(pix_id)
 
 
-def parse_date(value: str) -> datetime:
-    """ISO 8601 com fuso obrigatório. Sem fuso, "22:15" não diz se é noite para quem pagou."""
+def parse_date(value: str, field: str) -> datetime:
+    """ISO 8601 com fuso obrigatório. Sem fuso, "22:15" não diz se é noite para quem pagou.
+
+    `field` é o caminho do campo no corpo, para o erro apontar o lugar certo.
+    """
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
-        raise InvalidTransactionDate(value)
+        raise InvalidDateTime(field, value)
     if parsed.tzinfo is None:
-        raise InvalidTransactionDate(value)
+        raise InvalidDateTime(field, value)
     return parsed
 
 
@@ -107,13 +123,14 @@ def to_pix_request(payload: dict) -> PixRequest:
     return PixRequest(
         pix_id=payload["id"],
         amount_cents=payload["amount"],
-        transaction_date=parse_date(payload["transaction_date"]),
+        transaction_date=parse_date(payload["transaction_date"], "transaction_date"),
         source_document=only_digits(source_account["owner"]["document_number"]),
-        source_opening_date=parse_date(source_account["opening_date"]),
+        source_opening_date=parse_date(source_account["opening_date"], "source_account.opening_date"),
         destination_account=(destination_account["participant"], destination_account["branch"],
                              destination_account["account_number"]),
         destination_document=only_digits(destination_account["owner"]["document_number"]),
-        destination_opening_date=parse_date(destination_account["opening_date"]),
+        destination_opening_date=parse_date(destination_account["opening_date"],
+                                            "destination_account.opening_date"),
         device_id=source["device_id"],
         channel=source["channel"],
         ip=source["ip"],

@@ -37,16 +37,29 @@ bloquearia todo mundo que paga um prestador novo. Com pontos, sinal fraco
 só pesa somado a outros, e cada ponto continua explicável: o metadata
 lista cada regra que disparou, quanto ela somou e o que ela viu.
 
-Os casos em que um sinal sozinho É risco claro (rajada de dez Pix, conta
-recebendo de dez pessoas) continuam existindo, como efeito REJECT da regra.
+Nenhuma regra de hoje bloqueia sozinha. Os sinais que pareciam "risco
+claro" (dez Pix em dez minutos, dez pagadores numa hora) também aparecem
+em gente legítima: o churrasco dividido entre amigos, a lanchonete na hora
+do almoço. A recusa sai da COMBINAÇÃO de sinais. O efeito REJECT continua
+existindo no motor para a política de falha logo abaixo.
+
+Os limites regulatórios (ID02, TX07) são outra coisa: são pisos de 2FA
+(efeito FORCE_TWO_FACTOR) e nenhum desconto de confiança os derruba.
 
 ────────────────────────────────────────────────────────────────────
 SE UMA REGRA QUEBRAR
 ────────────────────────────────────────────────────────────────────
-Uma exceção numa regra não derruba a análise: o motor registra o erro e
-põe um piso de 2FA. Aprovar às cegas seria liberar fraude; recusar seria
-travar cliente bom por um defeito nosso. O 2FA é o meio-termo seguro, e
-o erro fica gravado nos motivos para alguém consertar.
+Uma exceção numa regra não derruba a análise, e o tratamento depende do
+eixo da regra que falhou — coerente com a tese do motor:
+
+• regra de IDENTIDADE: piso de 2FA. A dúvida que ficou é sobre quem
+  paga, e é exatamente o que o 2FA resolve;
+• regra de TRANSAÇÃO: o 2FA não resolveria a dúvida que ficou. Recusa a
+  partir de R$ 1.000 (dano potencial alto) e pede 2FA abaixo disso, para
+  não travar todo Pix pequeno por um defeito nosso.
+
+O erro fica gravado nos motivos, com o tipo da exceção, para alguém
+consertar.
 """
 
 from dataclasses import dataclass, field
@@ -55,7 +68,15 @@ from typing import List
 from rules.context import APPROVED, REJECTED, TWO_FACTOR_REQUIRED, History, PixRequest
 from rules.identity_rules import IDENTITY_RULES
 from rules.parameters import DEFAULT_PARAMETERS, RULES_VERSION, Parameters
-from rules.rule import FORCE_TWO_FACTOR, IDENTITY, REJECT, TRANSACTION, RuleHit
+from rules.rule import (
+    FAILSAFE_REJECT,
+    FAILSAFE_TWO_FACTOR,
+    FORCE_TWO_FACTOR,
+    IDENTITY,
+    REJECT,
+    TRANSACTION,
+    RuleHit,
+)
 from rules.transaction_rules import TRANSACTION_RULES
 from rules.trust_rules import TRUST_RULES
 
@@ -83,9 +104,7 @@ class DecisionEngine:
             try:
                 hit = rule.evaluate(pix, history, self.parameters)
             except Exception as error:
-                hit = RuleHit(rule.code, rule.axis, FORCE_TWO_FACTOR, 0,
-                              "Falha ao avaliar uma regra; por segurança, o cliente confirma a identidade.",
-                              {"error": type(error).__name__})
+                hit = self.failure_hit(rule, pix, error)
             if hit is not None:
                 hits.append(hit)
 
@@ -95,12 +114,25 @@ class DecisionEngine:
 
         return Decision(status, identity_score, transaction_score, reason, hits)
 
+    def failure_hit(self, rule, pix: PixRequest, error: Exception) -> RuleHit:
+        evidence = {"error": type(error).__name__}
+        if rule.axis == TRANSACTION and pix.amount_cents >= self.parameters.rule_error_reject_amount_cents:
+            return RuleHit(rule.code, rule.axis, FAILSAFE_REJECT, 0,
+                           "Falha ao avaliar uma regra da transação em Pix de valor alto; por segurança, recusado.",
+                           evidence)
+        return RuleHit(rule.code, rule.axis, FAILSAFE_TWO_FACTOR, 0,
+                       "Falha ao avaliar uma regra; por segurança, o cliente confirma antes de seguir.", evidence)
+
     def decide(self, hits: list, identity_score: int, transaction_score: int) -> tuple:
         p = self.parameters
 
         blocking = [hit.code for hit in hits if hit.effect == REJECT]
         if blocking:
             return REJECTED, f"Regra de bloqueio disparou: {', '.join(blocking)}."
+
+        failed = [hit.code for hit in hits if hit.effect == FAILSAFE_REJECT]
+        if failed:
+            return REJECTED, f"Falha técnica em regra da transação, Pix de valor alto: {', '.join(failed)}."
 
         if transaction_score >= p.transaction_reject_threshold:
             return REJECTED, ("Risco alto na transação. O 2FA confirmaria quem paga, "
@@ -112,7 +144,7 @@ class DecisionEngine:
         if identity_score >= p.both_axes_reject_threshold and transaction_score >= p.both_axes_reject_threshold:
             return REJECTED, "Dúvida sobre quem está pagando e sobre a transação ao mesmo tempo."
 
-        forced = [hit.code for hit in hits if hit.effect == FORCE_TWO_FACTOR]
+        forced = [hit.code for hit in hits if hit.effect in (FORCE_TWO_FACTOR, FAILSAFE_TWO_FACTOR)]
         doubts = []
         if identity_score >= p.two_factor_threshold:
             doubts.append("identidade")
