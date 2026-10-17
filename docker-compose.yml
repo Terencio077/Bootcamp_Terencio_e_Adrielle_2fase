@@ -1,0 +1,45 @@
+# Sobe tudo com um comando: docker compose up -d --build --wait
+# Mudou o database.sql? docker compose down -v (o banco só roda o .sql ao nascer).
+# Mudou um requirements.txt? docker compose build --no-cache.
+
+services:
+  antifraud-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: bootcamp
+      POSTGRES_PASSWORD: bootcamp
+      POSTGRES_DB: bootcamp
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bootcamp -d bootcamp"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - ./services/antifraud-service/database/database.sql:/docker-entrypoint-initdb.d/01.sql:ro
+      - antifraud-data:/var/lib/postgresql/data
+    ports:
+      - "${ANTIFRAUD_DB_PORT:-5548}:5432"
+
+  antifraud-service:
+    build:
+      context: ./services/antifraud-service
+      target: api
+    ports:
+      - "${ANTIFRAUD_PORT:-8005}:3000"
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      SERVICE_NAME: antifraud-service
+      INTERNAL_TOKEN: ${INTERNAL_TOKEN:-default_token}
+      DATABASE_URL: postgresql+psycopg2://bootcamp:bootcamp@antifraud-db:5432/bootcamp
+    depends_on:
+      antifraud-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:3000/health_check\")'"]
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+volumes:
+  antifraud-data:

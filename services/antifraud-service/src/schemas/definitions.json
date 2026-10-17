@@ -1,0 +1,25 @@
+{
+  "definitions": {
+    "document_number": {
+      "type": "string",
+      "pattern": "^(\\d{3}\\.\\d{3}\\.\\d{3}-\\d{2}|\\d{11}|\\d{2}\\.\\d{3}\\.\\d{3}/\\d{4}-\\d{2}|\\d{14})$"
+    },
+    "owner": {
+      "type": "object",
+      "properties": {
+        "document_number": {
+          "$ref": "definitions.json#/definitions/document_number"
+        }
+      },
+      "required": [
+        "document_number"
+      ],
+      "additionalProperties": false
+    },
+    "date_time": {
+      "type": "string",
+      "minLength": 16,
+      "maxLength": 40
+    }
+  }
+}
