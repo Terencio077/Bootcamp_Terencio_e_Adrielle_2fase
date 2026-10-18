@@ -4,7 +4,7 @@ Gerado por `python scripts/calibracao.py`. Cenários montados pelo time, com o r
 
 ## Motor atual
 
-- Acertos: **30/30**
+- Acertos: **30/30**, conformidade com os cenários sintéticos que nós mesmos escrevemos. Não é taxa de acerto em dados reais.
 - Legítimos recusados: **0** · legítimos com 2FA não previsto: **0**
 - Fraudes aprovadas: **0** · fraudes que só pediram 2FA: **5**
 

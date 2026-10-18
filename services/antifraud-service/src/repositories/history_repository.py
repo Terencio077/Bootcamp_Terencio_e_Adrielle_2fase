@@ -8,7 +8,7 @@ from rules import DestinationHistory, History, Parameters, PastPix, PixRequest
 
 
 class HistoryRepository:
-    """Monta o passado que o motor precisa, em TRÊS consultas por Pix.
+    """Monta o passado que o motor precisa, em QUATRO consultas por Pix.
 
     O orçamento de tempo de um Pix é de poucos segundos para a cadeia
     inteira, e o antifraude é só um elo dela. Por isso o histórico não é
@@ -25,11 +25,14 @@ class HistoryRepository:
     O "agora" das consultas é a transaction_date do Pix, nunca o NOW() do
     banco: o histórico de um Pix é o que aconteceu antes DELE.
 
-    O LIMITE DE 500: só corta quem faz mais de 500 Pix em 90 dias. As
-    janelas curtas (10 min, 24 h, a noite) continuam completas; a de 30 dias
-    pode ficar parcial, e aí a média diária sai menor e o motor pede MAIS
-    confirmação, não menos. Calcular esses agregados no banco é o próximo
-    passo se o perfil de clientes tiver muitos pagadores intensos (empresas).
+    4. Agregados do pagador sobre o histórico inteiro: primeiro Pix e saída
+       de 30 dias (ver payer_aggregates).
+
+    O LIMITE DE 500: a lista do pagador é cortada em 500 linhas. Antiguidade
+    e média de 30 dias vêm do agregado (4), que não sofre o corte. O que
+    ainda usa só a lista: perfil (TX04), recorrência (TR01), aparelho e
+    hábitos. Para quem faz mais de 500 Pix em 90 dias, esses sinais olham
+    apenas os 500 mais recentes — limite conhecido, documentado no README.
     """
 
     def lock_participants(self, pix: PixRequest) -> None:
@@ -54,10 +57,36 @@ class HistoryRepository:
         self.session = context.db_session
 
     def load(self, pix: PixRequest, parameters: Parameters) -> History:
+        first_seen, baseline = self.payer_aggregates(pix)
         return History(
             payer_pix=self.payer_history(pix, parameters),
             destination=self.destination_history(pix, parameters),
+            payer_first_seen=first_seen,
+            payer_baseline_30d_cents=baseline,
         )
+
+    def payer_aggregates(self, pix: PixRequest) -> tuple:
+        """Antiguidade e saída de 30 dias do pagador, sobre o histórico INTEIRO.
+
+        A lista do pagador é cortada em 500 linhas; sem estes agregados, um
+        pagador intenso perderia a evidência de antiguidade e a TX05 deixaria
+        de avaliar. Uma consulta só, no mesmo índice (pagador, data).
+        """
+        result = self.session.execute(text("""
+            SELECT MIN(t.transaction_date),
+                   COALESCE(SUM(t.amount_cents) FILTER (
+                       WHERE t.transaction_date >= :baseline_start AND t.transaction_date < :day_start
+                         AND s.enumerator IN ('APPROVED', 'TWO_FACTOR_REQUIRED')), 0)
+            FROM pix_transactions t
+            JOIN pix_analyses a ON a.pix_transaction_id = t.id
+            JOIN analysis_statuses s ON s.id = a.analysis_status_id
+            WHERE t.source_document = :payer AND t.transaction_date <= :now AND t.pix_id <> :pix_id
+        """), {"payer": pix.source_document, "now": pix.transaction_date, "pix_id": pix.pix_id,
+               "baseline_start": pix.transaction_date - timedelta(days=30),
+               "day_start": pix.transaction_date - timedelta(hours=24)}).first()
+        if result is None or result[0] is None:
+            return None, None
+        return result[0], int(result[1])
 
     def payer_history(self, pix: PixRequest, parameters: Parameters) -> list:
         since = pix.transaction_date - timedelta(days=parameters.history_days)

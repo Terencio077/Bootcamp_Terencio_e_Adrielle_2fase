@@ -121,7 +121,7 @@ def main():
     rows = run(DEFAULT_PARAMETERS)
     s = summary(rows)
     out += ["## Motor atual", "",
-            f"- Acertos: **{s['acertos']}/{s['total']}**",
+            f"- Acertos: **{s['acertos']}/{s['total']}**, conformidade com os cenários sintéticos que nós mesmos escrevemos. Não é taxa de acerto em dados reais.",
             f"- Legítimos recusados: **{s['legit_recusados']}** · legítimos com 2FA não previsto: **{s['legit_2fa_desnecessario']}**",
             f"- Fraudes aprovadas: **{s['fraude_aprovada']}** · fraudes que só pediram 2FA: **{s['fraude_so_2fa']}**", "",
             "| Cenário | Tipo | Aceitável | Motor | Ident. | Trans. | Regras | |", "|---|---|---|---|---|---|---|---|"]

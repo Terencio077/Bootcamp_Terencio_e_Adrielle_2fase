@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 
 from builders import NOW, history, known_payer, long_relationship, make_pix, past
 
-from rules import APPROVED, REJECTED, TWO_FACTOR_REQUIRED, DecisionEngine
+from rules import APPROVED, REJECTED, TWO_FACTOR_REQUIRED, DecisionEngine, History
 from rules.rule import FORCE_TWO_FACTOR, IDENTITY, REJECT, TRANSACTION, Rule, RuleHit
 
 engine = DecisionEngine()
@@ -222,3 +222,43 @@ def test_legitimo_emprestimo_ao_amigo_de_sempre_pede_2fa_e_nao_recusa():
     decision = engine.evaluate(make_pix(amount_cents=200000), history(*friend))
     assert decision.status == TWO_FACTOR_REQUIRED
     assert "TX05" not in {hit.code for hit in decision.hits}   # um Pix grande não conta duas vezes
+
+
+# ── Revisão 3: os três furos reproduzidos pelo revisor ─────────────────
+
+def exposure_history() -> list:
+    """Maior Pix aprovado de R$ 1.500 e três de R$ 1.500 nas últimas horas, para destinos diferentes."""
+    old = [past(minutes_ago=60 * 24 * day, amount_cents=150000, destination_document=f"9000000000{day % 10}")
+           for day in range(8, 20)]
+    today = [past(minutes_ago=60 * hour, amount_cents=150000, destination_document=f"8000000000{hour}")
+             for hour in (1, 2, 3)]
+    return old + today
+
+
+def test_furo_tx05_aumentar_o_valor_nao_desliga_a_soma_do_dia():
+    for amount in (199999, 200000, 250000):
+        decision = engine.evaluate(make_pix(amount_cents=amount, destination_document="70000000000"),
+                                   history(*exposure_history()))
+        assert "TX05" in {hit.code for hit in decision.hits}, amount
+        assert decision.status != APPROVED, amount
+
+
+def test_furo_tx08_tentativa_pendente_nao_tira_o_primeiro_pagamento():
+    pending = past(minutes_ago=0.02, amount_cents=100000, destination_document="70000000000",
+                   status=TWO_FACTOR_REQUIRED)
+    pix = make_pix(amount_cents=100000, destination_document="70000000000",
+                   destination_opening_date=NOW - timedelta(days=3))
+    decision = engine.evaluate(pix, history(*known_payer(), pending))
+    assert "TX08" in {hit.code for hit in decision.hits}
+    assert decision.status != APPROVED
+
+
+def test_furo_corte_de_500_antiguidade_vem_do_agregado():
+    # A lista chega cortada (só os últimos dias), mas o agregado do banco
+    # informa que o pagador existe há meses: a TX05 continua avaliando.
+    recent_only = [past(minutes_ago=60 * hour, amount_cents=150000, destination_document=f"8000000000{hour}")
+                   for hour in (1, 2, 3)]
+    cut = History(payer_pix=sorted(recent_only, key=lambda p: p.transaction_date, reverse=True),
+                  payer_first_seen=NOW - timedelta(days=80), payer_baseline_30d_cents=29 * 10000)
+    decision = engine.evaluate(make_pix(amount_cents=150000, destination_document="70000000000"), cut)
+    assert "TX05" in {hit.code for hit in decision.hits}

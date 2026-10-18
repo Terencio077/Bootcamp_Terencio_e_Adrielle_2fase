@@ -109,6 +109,11 @@ class DestinationHistory:
 class History:
     payer_pix: List[PastPix] = field(default_factory=list)   # do mais novo para o mais velho
     destination: DestinationHistory = field(default_factory=DestinationHistory)
+    # Agregados calculados pelo banco sobre o histórico INTEIRO do pagador,
+    # sem o corte de 500 linhas da lista acima. None = não informado (testes
+    # unitários); aí as regras calculam a partir da lista.
+    payer_first_seen: Optional[datetime] = None        # primeiro Pix do pagador
+    payer_baseline_30d_cents: Optional[int] = None     # saída de 30 dias atrás até 24 h atrás
 
     def payer_since(self, moment: datetime) -> List[PastPix]:
         return [past for past in self.payer_pix if past.transaction_date >= moment]

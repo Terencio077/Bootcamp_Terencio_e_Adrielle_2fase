@@ -154,11 +154,16 @@ class UnusualDailySum(Rule):
     conta. Compara as últimas 24 h com a média diária dos 29 dias antes
     delas, e só para quem tem pelo menos uma semana de histórico.
 
-    Só dispara quando é a SOMA que estoura o limite. Se o Pix atual sozinho
-    já chega ao limite, o caso é de "valor fora do perfil" (TX04), e contar
-    o mesmo Pix nas duas regras puniria duas vezes um único pagamento grande
-    — como o empréstimo ao amigo de sempre, que deve pedir 2FA, e não ser
-    recusado.
+    Dupla contagem: se o excesso é explicado só pelo Pix atual (as saídas
+    anteriores do dia estavam normais e ele sozinho chega ao limite), o caso
+    é de "valor fora do perfil" (TX04), e contar o mesmo Pix nas duas regras
+    puniria duas vezes um único pagamento grande — como o empréstimo ao
+    amigo de sempre. Mas se as saídas ANTERIORES do dia já passaram do
+    limite, a regra dispara qualquer que seja o valor atual: aumentar o
+    valor não pode desligar o sinal de esvaziamento.
+
+    A antiguidade e a média de 30 dias vêm de agregados do banco sobre o
+    histórico inteiro, para o corte de 500 linhas não desligar a regra.
     """
 
     code = "TX05"
@@ -168,7 +173,7 @@ class UnusualDailySum(Rule):
     def evaluate(self, pix: PixRequest, history: History, parameters: Parameters) -> Optional[RuleHit]:
         if not history.payer_pix:
             return None
-        oldest = history.payer_pix[-1].transaction_date
+        oldest = history.payer_first_seen or history.payer_pix[-1].transaction_date
         if pix.transaction_date - oldest < timedelta(days=parameters.daily_sum_min_history_days):
             return None
 
@@ -176,19 +181,25 @@ class UnusualDailySum(Rule):
         day_start = now - timedelta(hours=24)
         baseline_start = now - timedelta(days=30)
 
-        day_total = pix.amount_cents
+        previous_today = 0
         baseline_total = 0
         for past in history.payer_pix:
             if not past.money_may_have_left:
                 continue
             if past.transaction_date >= day_start:
-                day_total += past.amount_cents
+                previous_today += past.amount_cents
             elif past.transaction_date >= baseline_start:
                 baseline_total += past.amount_cents
+        if history.payer_baseline_30d_cents is not None:
+            baseline_total = history.payer_baseline_30d_cents
+        day_total = previous_today + pix.amount_cents
 
         daily_average = baseline_total / 29
         threshold = max(parameters.daily_sum_factor * daily_average, parameters.daily_sum_floor_cents)
-        if day_total <= threshold or pix.amount_cents >= threshold:
+        if day_total <= threshold:
+            return None
+        explained_by_current_only = previous_today <= threshold and pix.amount_cents >= threshold
+        if explained_by_current_only:
             return None
 
         return self.hit(parameters.daily_sum_points,
@@ -301,7 +312,10 @@ class FirstPaymentToPayee(Rule):
             return None
         if pix.source_document == pix.destination_document:
             return None
-        if any(past.destination_document == pix.destination_document for past in history.payer_pix):
+        # Só pagamento APROVADO tira o "primeiro Pix": uma tentativa pendente
+        # (2FA não confirmado) não prova relacionamento nenhum.
+        if any(past.destination_document == pix.destination_document and past.status == APPROVED
+               for past in history.payer_pix):
             return None
         return self.hit(parameters.first_payment_points,
                         "Primeiro Pix deste pagador para este recebedor, com valor relevante.",
