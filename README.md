@@ -1,6 +1,5 @@
-# [Nome do grupo]
 
-**Integrantes:** [nomes]
+**Integrantes:** Adrielle Santana e Guilherme Terencio
 
 Motor antifraude de Pix: uma API que recebe um Pix, olha o histórico de quem paga e de quem recebe, aplica as regras e devolve `approved`, `two_factor_required` ou `rejected`, com o motivo de cada decisão gravado e consultável.
 
@@ -40,7 +39,7 @@ POST /pix/transaction
 
 - **O histórico vem de uma vez e só por índices.** O Pix tem poucos segundos para a cadeia inteira, e o Banco Central acompanha o p95 e o p99 do tempo de resposta. Por isso o histórico vem antes das regras, em três consultas indexadas.
 - **O tempo de decisão fica gravado em toda análise** (`decision_latency_ms`). Ele mede da trava até a decisão do motor (passos 3 a 6) e **não inclui** a validação do corpo nem a gravação e o commit. O tempo total de cada requisição aparece no log (`SAIU 201 ... ms`).
-- **Medição feita até agora** (ambiente local, PostgreSQL 16, um processo): Pix isolados decidem em 3 a 6 ms, que é o que a demo mostra. Nas 214 análises da suíte de testes, o p95 ficou em ~20 ms, puxado pelo teste de concorrência, em que 12 Pix simultâneos do mesmo pagador esperam um pelo outro na trava. Sob volume, com 100 mil Pix de histórico, ver **`CARGA.md`**: 100 Pix/s de contas diferentes com p95 de 59 ms, 50 Pix/s para a mesma loja com p95 de 220 ms, e nenhum Pix sem decisão no mesmo pagador até 50 Pix/s. O teste de carga mudou três coisas no projeto: 4 processos, fim da trava do destino e a TX09.
+- **Medição feita até agora** (ambiente local, PostgreSQL 16, um Pix por vez): Pix isolados decidem em 3 a 6 ms, que é o que a demo mostra. Nas 214 análises da suíte de testes, o p95 ficou em ~20 ms, puxado pelo teste de concorrência, em que 12 Pix simultâneos do mesmo pagador esperam um pelo outro na trava. Sob volume, com 100 mil Pix de histórico, ver **`CARGA.md`**: 100 Pix/s de contas diferentes com p95 de 59 ms, 50 Pix/s para a mesma loja com p95 de 220 ms, e nenhum Pix sem decisão no mesmo pagador até 50 Pix/s. O teste de carga mudou três coisas no projeto: 4 processos, fim da trava do destino e a TX09.
 - **As regras são Python puro.** Elas recebem o Pix e o histórico e devolvem um disparo ou nada, sem banco, rede ou relógio. Isso as deixa testáveis em milissegundos e determinísticas.
 - **O relógio das regras é a `transaction_date` do Pix**, com o fuso que veio, e não o relógio do servidor. "Últimos 10 minutos" são os 10 minutos antes *deste* Pix; "noite" é a noite no relógio de quem paga.
 - **Pix simultâneos do mesmo pagador não se atropelam.** Sem a trava do passo 3, dois Pix do mesmo pagador chegando juntos leem o histórico antes de qualquer um gravar, e a rajada conta errado. Isso foi reproduzido: 12 Pix simultâneos contaram a rajada como `[5, 5, 5, …]` em vez de `5…12`. A trava fila as análises do mesmo pagador. **O destino não é travado, de propósito:** uma versão anterior travava também o destino, e o teste de carga mostrou que isso colocava em fila todos os clientes de uma loja (acima de ~10 Pix/s para a mesma conta, os pagamentos estouravam o tempo). Em chegadas simultâneas, a TX02 pode ver um ou dois pagadores a menos numa janela de uma hora, o que não muda a decisão. Serializar o mesmo pagador não atrapalha ninguém legítimo: uma pessoa não manda dez Pix por segundo. A trava fica no Postgres, então vale também entre os 4 processos da API (`WEB_WORKERS` no Dockerfile).
@@ -171,7 +170,7 @@ Na revisão do motor, cada furo encontrado virou um par de testes: o que reprodu
 
 ### Como escolhemos o 5× da recorrência
 
-O experimento da revisão externa mostrou que três Pix de R$ 1, em dias diferentes, davam o desconto de recorrência e faziam um Pix de R$ 5.000 ser aprovado (TX04 +40, TR01 −30). Decidimos que **um relacionamento pequeno não pode avalizar um valor muito maior**, e que a forma é a leve: acima do limite, o TR01 só deixa de descontar. A recorrência continua sendo um sinal; ela só não vale para um valor desproporcional.
+Um experimento de revisão mostrou que três Pix de R$ 1, em dias diferentes, davam o desconto de recorrência e faziam um Pix de R$ 5.000 ser aprovado (TX04 +40, TR01 −30). Decidimos que **um relacionamento pequeno não pode avalizar um valor muito maior**, e que a forma é a leve: acima do limite, o TR01 só deixa de descontar. A recorrência continua sendo um sinal; ela só não vale para um valor desproporcional.
 
 Para escolher o limite, montamos casos legítimos e de golpe e comparamos quatro réguas. A conta é: valor atual ÷ maior Pix aprovado para o recebedor; ✅ = mantém o desconto.
 
@@ -260,7 +259,6 @@ Nenhum passo manual: o `.env` é opcional (os padrões estão no `docker-compose
 
 **Os testes:**
 - [`services/antifraud-service/tests/unit`](services/antifraud-service/tests/unit) tem os testes do motor sem banco: cada regra no limite e logo abaixo dele, os estados do aparelho, a tabela de decisão com regras falsas e os pares furo/caso legítimo. Para rodar só esses, sem Docker: `pytest services/antifraud-service/tests`.
-- [`testes_revisao_v3`](testes_revisao_v3) tem os 28 testes da revisão externa (controller com falhas de banco simuladas e a consulta da TX03 em SQLite), com o relatório original. Rode com `pytest -c testes_revisao_v3/pytest.ini testes_revisao_v3`.
 - [`tests/integration`](tests/integration) fala só HTTP. Cobre o contrato (formato, idempotência, 409, 400, 422, 403, 404, GET igual ao POST), as jornadas de ponta a ponta com o histórico montado por POSTs com datas no passado, e o teste de concorrência. O banco não precisa ser limpo: cada teste inventa os próprios CPFs e contas.
 
 **Chamando na mão.** Todas as rotas, menos `/` e `/health_check`, exigem o cabeçalho `INTERNAL-TOKEN`, como no base-service. O motor é chamado pelo orquestrador do Pix, nunca pelo app do cliente.
