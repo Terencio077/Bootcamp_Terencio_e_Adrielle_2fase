@@ -1,0 +1,700 @@
+VERIFICACAO DO MOTOR ANTIFRAUDE
+
+{
+  "verificador": "2026-10-17.1",
+  "casos": [
+    {
+      "nome": "TX08: repetição após pendência",
+      "modo": "MOTOR",
+      "observado": {
+        "primeiro": {
+          "status": "two_factor_required",
+          "scores": {
+            "identity": 0,
+            "transaction": 35
+          },
+          "regras": [
+            {
+              "regra": "TX01",
+              "pontos": 25,
+              "efeito": "SCORE",
+              "evidencia": {
+                "destination_age_days": 3.0
+              }
+            },
+            {
+              "regra": "TX08",
+              "pontos": 10,
+              "efeito": "SCORE",
+              "evidencia": {
+                "amount_cents": 100000
+              }
+            }
+          ],
+          "versao": "2026.10.17-r4"
+        },
+        "repeticao": {
+          "status": "two_factor_required",
+          "scores": {
+            "identity": 0,
+            "transaction": 35
+          },
+          "regras": [
+            {
+              "regra": "TX01",
+              "pontos": 25,
+              "efeito": "SCORE",
+              "evidencia": {
+                "destination_age_days": 3.0
+              }
+            },
+            {
+              "regra": "TX08",
+              "pontos": 10,
+              "efeito": "SCORE",
+              "evidencia": {
+                "amount_cents": 100000
+              }
+            }
+          ],
+          "versao": "2026.10.17-r4"
+        }
+      },
+      "resultado": "PASSOU",
+      "segundos": 0.002
+    },
+    {
+      "nome": "TX08: repetição após recusa",
+      "modo": "MOTOR",
+      "observado": {
+        "primeiro": {
+          "status": "rejected",
+          "scores": {
+            "identity": 0,
+            "transaction": 60
+          },
+          "regras": [
+            {
+              "regra": "TX01",
+              "pontos": 25,
+              "efeito": "SCORE",
+              "evidencia": {
+                "destination_age_days": 3.0
+              }
+            },
+            {
+              "regra": "TX04",
+              "pontos": 25,
+              "efeito": "SCORE",
+              "evidencia": {
+                "amount_cents": 300000,
+                "largest_approved_cents": 100000,
+                "ratio": 3.0
+              }
+            },
+            {
+              "regra": "TX08",
+              "pontos": 10,
+              "efeito": "SCORE",
+              "evidencia": {
+                "amount_cents": 300000
+              }
+            }
+          ],
+          "versao": "2026.10.17-r4"
+        },
+        "repeticao": {
+          "status": "rejected",
+          "scores": {
+            "identity": 0,
+            "transaction": 60
+          },
+          "regras": [
+            {
+              "regra": "TX01",
+              "pontos": 25,
+              "efeito": "SCORE",
+              "evidencia": {
+                "destination_age_days": 3.0
+              }
+            },
+            {
+              "regra": "TX04",
+              "pontos": 25,
+              "efeito": "SCORE",
+              "evidencia": {
+                "amount_cents": 300000,
+                "largest_approved_cents": 100000,
+                "ratio": 3.0
+              }
+            },
+            {
+              "regra": "TX08",
+              "pontos": 10,
+              "efeito": "SCORE",
+              "evidencia": {
+                "amount_cents": 300000
+              }
+            }
+          ],
+          "versao": "2026.10.17-r4"
+        }
+      },
+      "resultado": "PASSOU",
+      "segundos": 0.001
+    },
+    {
+      "nome": "TX05: fronteira R$ 1.999,99 / R$ 2.000",
+      "modo": "MOTOR",
+      "observado": [
+        {
+          "valor_centavos": 199999,
+          "exposicao_anterior_centavos": 450000,
+          "anteriores": [
+            "approved",
+            "two_factor_required",
+            "two_factor_required"
+          ],
+          "resultado": {
+            "status": "two_factor_required",
+            "scores": {
+              "identity": 0,
+              "transaction": 35
+            },
+            "regras": [
+              {
+                "regra": "TX05",
+                "pontos": 25,
+                "efeito": "SCORE",
+                "evidencia": {
+                  "day_total_cents": 657999,
+                  "daily_average_cents": 5241,
+                  "threshold_cents": 200000
+                }
+              },
+              {
+                "regra": "TX08",
+                "pontos": 10,
+                "efeito": "SCORE",
+                "evidencia": {
+                  "amount_cents": 199999
+                }
+              }
+            ],
+            "versao": "2026.10.17-r4"
+          }
+        },
+        {
+          "valor_centavos": 200000,
+          "exposicao_anterior_centavos": 450000,
+          "anteriores": [
+            "approved",
+            "two_factor_required",
+            "two_factor_required"
+          ],
+          "resultado": {
+            "status": "two_factor_required",
+            "scores": {
+              "identity": 0,
+              "transaction": 35
+            },
+            "regras": [
+              {
+                "regra": "TX05",
+                "pontos": 25,
+                "efeito": "SCORE",
+                "evidencia": {
+                  "day_total_cents": 658000,
+                  "daily_average_cents": 5241,
+                  "threshold_cents": 200000
+                }
+              },
+              {
+                "regra": "TX08",
+                "pontos": 10,
+                "efeito": "SCORE",
+                "evidencia": {
+                  "amount_cents": 200000
+                }
+              }
+            ],
+            "versao": "2026.10.17-r4"
+          }
+        }
+      ],
+      "resultado": "PASSOU",
+      "segundos": 0.003
+    },
+    {
+      "nome": "Histórico 501: soma diária",
+      "modo": "MOTOR",
+      "observado": {
+        "registros_historicos": 501,
+        "resultado": {
+          "status": "two_factor_required",
+          "scores": {
+            "identity": 0,
+            "transaction": 40
+          },
+          "regras": [
+            {
+              "regra": "TX01",
+              "pontos": 15,
+              "efeito": "SCORE",
+              "evidencia": {
+                "destination_age_days": 20.0
+              }
+            },
+            {
+              "regra": "TX05",
+              "pontos": 25,
+              "efeito": "SCORE",
+              "evidencia": {
+                "day_total_cents": 405000,
+                "daily_average_cents": 72414,
+                "threshold_cents": 217241
+              }
+            }
+          ],
+          "versao": "2026.10.17-r4"
+        },
+        "escopo": "histórico completo no motor"
+      },
+      "resultado": "PASSOU",
+      "segundos": 0.195
+    },
+    {
+      "nome": "Controle: aluguel diurno recorrente",
+      "modo": "MOTOR",
+      "observado": {
+        "status": "approved",
+        "scores": {
+          "identity": 0,
+          "transaction": 0
+        },
+        "regras": [
+          {
+            "regra": "TX05",
+            "pontos": 25,
+            "efeito": "SCORE",
+            "evidencia": {
+              "day_total_cents": 300000,
+              "daily_average_cents": 5172,
+              "threshold_cents": 200000
+            }
+          },
+          {
+            "regra": "TR01",
+            "pontos": -30,
+            "efeito": "SCORE",
+            "evidencia": {
+              "approved_days_to_payee": 4,
+              "largest_to_payee_cents": 150000,
+              "ratio": 1.0,
+              "max_ratio": 5.0
+            }
+          }
+        ],
+        "versao": "2026.10.17-r4"
+      },
+      "resultado": "PASSOU",
+      "segundos": 0.0
+    },
+    {
+      "nome": "Controle: piso noturno com recorrência",
+      "modo": "MOTOR",
+      "observado": {
+        "status": "two_factor_required",
+        "scores": {
+          "identity": 0,
+          "transaction": 5
+        },
+        "regras": [
+          {
+            "regra": "TX07",
+            "pontos": 35,
+            "efeito": "FORCE_TWO_FACTOR",
+            "evidencia": {
+              "night_total_cents": 150000,
+              "night_limit_cents": 100000,
+              "local_hour": 22,
+              "assumed_default_limit": true
+            }
+          },
+          {
+            "regra": "TR01",
+            "pontos": -30,
+            "efeito": "SCORE",
+            "evidencia": {
+              "approved_days_to_payee": 4,
+              "largest_to_payee_cents": 150000,
+              "ratio": 1.0,
+              "max_ratio": 5.0
+            }
+          }
+        ],
+        "versao": "2026.10.17-r4"
+      },
+      "resultado": "PASSOU",
+      "segundos": 0.001
+    },
+    {
+      "nome": "TX08: repetição após pendência",
+      "modo": "API",
+      "observado": {
+        "primeiro": {
+          "status": "two_factor_required",
+          "scores": {
+            "identity": 0,
+            "transaction": 35
+          },
+          "regras": [
+            {
+              "regra": "TX01",
+              "pontos": 25,
+              "efeito": "score",
+              "evidencia": {
+                "destination_age_days": 3.0
+              }
+            },
+            {
+              "regra": "TX08",
+              "pontos": 10,
+              "efeito": "score",
+              "evidencia": {
+                "amount_cents": 100000
+              }
+            }
+          ],
+          "versao": "2026.10.17-r4"
+        },
+        "repeticao": {
+          "status": "two_factor_required",
+          "scores": {
+            "identity": 0,
+            "transaction": 35
+          },
+          "regras": [
+            {
+              "regra": "TX01",
+              "pontos": 25,
+              "efeito": "score",
+              "evidencia": {
+                "destination_age_days": 3.0
+              }
+            },
+            {
+              "regra": "TX08",
+              "pontos": 10,
+              "efeito": "score",
+              "evidencia": {
+                "amount_cents": 100000
+              }
+            }
+          ],
+          "versao": "2026.10.17-r4"
+        }
+      },
+      "resultado": "PASSOU",
+      "segundos": 0.672
+    },
+    {
+      "nome": "TX08: repetição após recusa",
+      "modo": "API",
+      "observado": {
+        "primeiro": {
+          "status": "rejected",
+          "scores": {
+            "identity": 0,
+            "transaction": 60
+          },
+          "regras": [
+            {
+              "regra": "TX01",
+              "pontos": 25,
+              "efeito": "score",
+              "evidencia": {
+                "destination_age_days": 3.0
+              }
+            },
+            {
+              "regra": "TX04",
+              "pontos": 25,
+              "efeito": "score",
+              "evidencia": {
+                "ratio": 3.0,
+                "amount_cents": 300000,
+                "largest_approved_cents": 100000
+              }
+            },
+            {
+              "regra": "TX08",
+              "pontos": 10,
+              "efeito": "score",
+              "evidencia": {
+                "amount_cents": 300000
+              }
+            }
+          ],
+          "versao": "2026.10.17-r4"
+        },
+        "repeticao": {
+          "status": "rejected",
+          "scores": {
+            "identity": 0,
+            "transaction": 60
+          },
+          "regras": [
+            {
+              "regra": "TX01",
+              "pontos": 25,
+              "efeito": "score",
+              "evidencia": {
+                "destination_age_days": 3.0
+              }
+            },
+            {
+              "regra": "TX04",
+              "pontos": 25,
+              "efeito": "score",
+              "evidencia": {
+                "ratio": 3.0,
+                "amount_cents": 300000,
+                "largest_approved_cents": 100000
+              }
+            },
+            {
+              "regra": "TX08",
+              "pontos": 10,
+              "efeito": "score",
+              "evidencia": {
+                "amount_cents": 300000
+              }
+            }
+          ],
+          "versao": "2026.10.17-r4"
+        }
+      },
+      "resultado": "PASSOU",
+      "segundos": 0.44
+    },
+    {
+      "nome": "TX05: fronteira R$ 1.999,99 / R$ 2.000",
+      "modo": "API",
+      "observado": [
+        {
+          "valor_centavos": 199999,
+          "exposicao_anterior_centavos": 450000,
+          "anteriores": [
+            "approved",
+            "two_factor_required",
+            "two_factor_required"
+          ],
+          "resultado": {
+            "status": "two_factor_required",
+            "scores": {
+              "identity": 0,
+              "transaction": 35
+            },
+            "regras": [
+              {
+                "regra": "TX05",
+                "pontos": 25,
+                "efeito": "score",
+                "evidencia": {
+                  "day_total_cents": 657999,
+                  "threshold_cents": 200000,
+                  "daily_average_cents": 5241
+                }
+              },
+              {
+                "regra": "TX08",
+                "pontos": 10,
+                "efeito": "score",
+                "evidencia": {
+                  "amount_cents": 199999
+                }
+              }
+            ],
+            "versao": "2026.10.17-r4"
+          }
+        },
+        {
+          "valor_centavos": 200000,
+          "exposicao_anterior_centavos": 450000,
+          "anteriores": [
+            "approved",
+            "two_factor_required",
+            "two_factor_required"
+          ],
+          "resultado": {
+            "status": "two_factor_required",
+            "scores": {
+              "identity": 0,
+              "transaction": 35
+            },
+            "regras": [
+              {
+                "regra": "TX05",
+                "pontos": 25,
+                "efeito": "score",
+                "evidencia": {
+                  "day_total_cents": 658000,
+                  "threshold_cents": 200000,
+                  "daily_average_cents": 5241
+                }
+              },
+              {
+                "regra": "TX08",
+                "pontos": 10,
+                "efeito": "score",
+                "evidencia": {
+                  "amount_cents": 200000
+                }
+              }
+            ],
+            "versao": "2026.10.17-r4"
+          }
+        }
+      ],
+      "resultado": "PASSOU",
+      "segundos": 2.471
+    },
+    {
+      "nome": "Histórico 501: soma diária",
+      "modo": "API",
+      "observado": {
+        "registros_historicos": 501,
+        "resultado": {
+          "status": "two_factor_required",
+          "scores": {
+            "identity": 0,
+            "transaction": 40
+          },
+          "regras": [
+            {
+              "regra": "TX01",
+              "pontos": 15,
+              "efeito": "score",
+              "evidencia": {
+                "destination_age_days": 20.0
+              }
+            },
+            {
+              "regra": "TX05",
+              "pontos": 25,
+              "efeito": "score",
+              "evidencia": {
+                "day_total_cents": 405000,
+                "threshold_cents": 217241,
+                "daily_average_cents": 72414
+              }
+            }
+          ],
+          "versao": "2026.10.17-r4"
+        },
+        "escopo": "repository/banco pela API"
+      },
+      "resultado": "PASSOU",
+      "segundos": 24.572
+    },
+    {
+      "nome": "Controle: aluguel diurno recorrente",
+      "modo": "API",
+      "observado": {
+        "status": "approved",
+        "scores": {
+          "identity": 0,
+          "transaction": 0
+        },
+        "regras": [
+          {
+            "regra": "TX05",
+            "pontos": 25,
+            "efeito": "score",
+            "evidencia": {
+              "day_total_cents": 300000,
+              "threshold_cents": 200000,
+              "daily_average_cents": 5172
+            }
+          },
+          {
+            "regra": "TR01",
+            "pontos": -30,
+            "efeito": "score",
+            "evidencia": {
+              "ratio": 1.0,
+              "max_ratio": 5.0,
+              "approved_days_to_payee": 4,
+              "largest_to_payee_cents": 150000
+            }
+          }
+        ],
+        "versao": "2026.10.17-r4"
+      },
+      "resultado": "PASSOU",
+      "segundos": 0.242
+    },
+    {
+      "nome": "Controle: piso noturno com recorrência",
+      "modo": "API",
+      "observado": {
+        "status": "two_factor_required",
+        "scores": {
+          "identity": 0,
+          "transaction": 5
+        },
+        "regras": [
+          {
+            "regra": "TX07",
+            "pontos": 35,
+            "efeito": "force_two_factor",
+            "evidencia": {
+              "local_hour": 22,
+              "night_limit_cents": 100000,
+              "night_total_cents": 150000,
+              "assumed_default_limit": true
+            }
+          },
+          {
+            "regra": "TR01",
+            "pontos": -30,
+            "efeito": "score",
+            "evidencia": {
+              "ratio": 1.0,
+              "max_ratio": 5.0,
+              "approved_days_to_payee": 4,
+              "largest_to_payee_cents": 150000
+            }
+          }
+        ],
+        "versao": "2026.10.17-r4"
+      },
+      "resultado": "PASSOU",
+      "segundos": 0.203
+    }
+  ],
+  "avisos": [],
+  "data": "2026-10-17T21:14:12",
+  "projeto": "Bootcamp_QITech_Terencio_e_Adrielle",
+  "python": "3.13.5",
+  "commit": "618f1f3f212dcee71ffd751cd920ab02da45f5fa",
+  "alteracoes_rastreadas": false,
+  "sha256_fontes": {
+    "rules/parameters.py": "fa54de5ec6422aad1b72c01036ef3ac83876aac2c2709529e1be6e736312d873",
+    "rules/transaction_rules.py": "5e7357dacf74817a9d6b7da7144b82dbac7e875ca242d22a9fca36434851f1b3",
+    "rules/trust_rules.py": "975857290b6e4ac168d40b70575ddb8313d21f1688bf097909824a6b4e1e6102",
+    "rules/context.py": "4f60d8c8c38d88c1fa3d0811cf4bafde9bdc2e3c6952ebd091832e858a1831be",
+    "repositories/history_repository.py": "fdd509b3092401a002b27bf346cfa2bc6bdfc73ef26b4a5231233ff346379d71",
+    "controllers/pix_transaction_controller.py": "2cc2dc5b9d98f0b21f4ba1d8a200605b3157b014ac987b764e54418f3345a7e8"
+  },
+  "versao_local": "2026.10.17-r4",
+  "versoes_api": [
+    "2026.10.17-r4"
+  ],
+  "resumo": {
+    "PASSOU": 12,
+    "FALHOU": 0,
+    "ERRO": 0
+  }
+}

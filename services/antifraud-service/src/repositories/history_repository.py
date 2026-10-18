@@ -20,7 +20,9 @@ class HistoryRepository:
        dia, geolocalização, recorrência.
     2. Quantos pagadores DIFERENTES tentaram pagar o destino na última hora.
     3. Quantos pagadores diferentes tiveram Pix para o destino recusado no
-       último mês POR RISCO DA TRANSAÇÃO (ver rejected_destination_payers).
+       último mês POR RISCO DA TRANSAÇÃO (ver rejected_destination_payers),
+       e o pico de pagadores distintos por hora do destino nos últimos 30
+       dias (o padrão da própria conta, usado pela TX02).
 
     O "agora" das consultas é a transaction_date do Pix, nunca o NOW() do
     banco: o histórico de um Pix é o que aconteceu antes DELE.
@@ -127,8 +129,25 @@ class HistoryRepository:
 
         rejected_payers = self.rejected_destination_payers(pix, parameters)
 
+        # Pico da própria conta: maior nº de pagadores distintos numa mesma
+        # hora, nos 30 dias ANTERIORES à janela atual (a janela não entra,
+        # senão a rajada de hoje viraria o "normal" dela mesma).
+        peak = self.session.execute(text("""
+            SELECT COALESCE(MAX(n), 0) FROM (
+                SELECT COUNT(DISTINCT source_document) AS n
+                FROM pix_transactions
+                WHERE destination_participant = :participant AND destination_branch = :branch
+                  AND destination_account_number = :account
+                  AND transaction_date >= :since AND transaction_date < :window_start
+                GROUP BY date_trunc('hour', transaction_date)
+            ) per_hour
+        """), {"participant": participant, "branch": branch, "account": account_number,
+               "since": pix.transaction_date - timedelta(days=parameters.concentration_own_peak_days),
+               "window_start": concentration_since}).scalar()
+
         return DestinationHistory(distinct_other_payers_in_window=other_payers or 0,
-                                  rejected_payers_in_window=rejected_payers)
+                                  rejected_payers_in_window=rejected_payers,
+                                  peak_payers_30d=int(peak or 0))
 
     def rejected_destination_payers(self, pix: PixRequest, parameters: Parameters) -> int:
         """Pagadores distintos cujo Pix para este destino foi recusado por risco DA TRANSAÇÃO.

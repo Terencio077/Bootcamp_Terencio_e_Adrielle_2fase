@@ -42,32 +42,37 @@ class YoungDestination(Rule):
 
 
 class PayerConcentration(Rule):
-    """TX02 — muitos pagadores diferentes tentando pagar a mesma conta em pouco tempo.
+    """TX02 — muitos pagadores diferentes tentando pagar a mesma conta, MAIS do que ela costuma receber.
 
-    É o que o código observa de fato: concentração de pagadores. Ela
-    aparece numa conta laranja (dezenas de vítimas pagando o mesmo "produto"
-    que não existe) e também numa lanchonete na hora do almoço. Por isso a
-    regra não decide sozinha e o tipo do recebedor contextualiza:
+    Concentração de pagadores aparece numa conta laranja (dezenas de vítimas
+    pagando o mesmo "produto" que não existe) e também num restaurante na
+    hora do almoço. O que separa os dois não é o tipo de documento — um
+    golpista abre um MEI em uma semana —, é o PASSADO DA PRÓPRIA CONTA: o
+    restaurante lota no almoço todo dia; a laranja não recebia de ninguém.
 
-    • CPF recebendo de muita gente é incomum: pesa mais cedo;
-    • CNPJ recebendo de muita gente é o normal do comércio: só pesa em
-      volumes bem maiores, e pouco.
+    Por isso a regra compara a hora atual com o pico da conta nos últimos
+    30 dias e só conta o EXCESSO: pagadores acima de 1,5× esse pico. Uma
+    conta sem passado tem pico zero e conta tudo (e a TX01 soma a idade).
 
-    A idade da conta não entra aqui porque já pesa na TX01; as duas somam.
-    Uma conta de CPF aberta há dias recebendo de dez pessoas na mesma hora
-    passa do limite de recusa pela combinação, não por um sinal só.
+    O tipo do recebedor fica como contexto secundário, só nos limites
+    aplicados ao excesso: uma conta de CNPJ sem histórico aqui (comércio
+    recém-chegado) ainda tem mais folga que uma de CPF.
     Conta quem TENTOU pagar (inclusive recusados): a demanda pela conta é
     o sinal, independentemente do que o motor decidiu.
     """
 
     code = "TX02"
     axis = TRANSACTION
-    name = "Concentração de pagadores"
+    name = "Concentração de pagadores acima do padrão da conta"
 
     def evaluate(self, pix: PixRequest, history: History, parameters: Parameters) -> Optional[RuleHit]:
         payers = 1 + history.destination.distinct_other_payers_in_window
+        peak = history.destination.peak_payers_30d
+        usual = int(peak * parameters.concentration_own_peak_factor)
+        excess = payers - usual
         is_person = len(pix.destination_document) == 11
         evidence = {"distinct_payers": payers, "window_minutes": parameters.concentration_window_minutes,
+                    "own_peak_30d": peak, "excess_over_usual": max(excess, 0),
                     "destination_type": "cpf" if is_person else "cnpj"}
 
         if is_person:
@@ -78,9 +83,9 @@ class PayerConcentration(Rule):
                      (parameters.concentration_company_payers, parameters.concentration_company_points)]
 
         for minimum, points in tiers:
-            if payers >= minimum:
-                return self.hit(points, "Vários pagadores diferentes tentando pagar esta conta em pouco tempo.",
-                                evidence)
+            if excess >= minimum:
+                return self.hit(points, "Muito mais pagadores diferentes tentando pagar esta conta do que ela "
+                                        "costuma receber.", evidence)
         return None
 
 

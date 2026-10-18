@@ -16,7 +16,7 @@ contrato da API e no projeto da primeira etapa.
 from dataclasses import dataclass
 
 
-RULES_VERSION = "2026.10.17-r4"
+RULES_VERSION = "2026.10.17-r5"
 
 
 @dataclass(frozen=True)
@@ -108,6 +108,12 @@ class Parameters:
     concentration_company_points: int = 15
     concentration_company_high_payers: int = 30
     concentration_company_high_points: int = 30
+    # Padrão da própria conta: só conta o que passa de 1,5× o maior
+    # movimento (pagadores distintos numa hora) que ela teve nos últimos
+    # 30 dias. O restaurante que sempre lota no almoço não pontua; a conta
+    # que recebia ninguém e de repente recebe dez, pontua inteira.
+    concentration_own_peak_days: int = 30
+    concentration_own_peak_factor: float = 1.5
 
     # ── TX03 Destino com recusas recentes ──────────────────────────────
     # Só contam recusas causadas pelo lado da transação (nota da transação

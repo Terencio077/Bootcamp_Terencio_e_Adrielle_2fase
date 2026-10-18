@@ -47,11 +47,13 @@ def past(minutes_ago: float = 60 * 24, **overrides) -> PastPix:
     return replace(pix, **overrides)
 
 
-def history(*payer_pix: PastPix, distinct_other_payers: int = 0, rejected: int = 0) -> History:
+def history(*payer_pix: PastPix, distinct_other_payers: int = 0, rejected: int = 0,
+            peak: int = 0) -> History:
     ordered = sorted(payer_pix, key=lambda item: item.transaction_date, reverse=True)
     return History(payer_pix=ordered,
                    destination=DestinationHistory(distinct_other_payers_in_window=distinct_other_payers,
-                                                  rejected_payers_in_window=rejected))
+                                                  rejected_payers_in_window=rejected,
+                                                  peak_payers_30d=peak))
 
 
 def long_relationship(**overrides) -> list:

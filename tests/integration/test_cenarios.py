@@ -93,6 +93,18 @@ def test_legitimo_comercio_antigo_com_o_mesmo_movimento_aprova_todos():
     assert statuses == ["approved"] * 10
 
 
+def test_legitimo_marmita_no_cpf_que_lota_todo_almoco_aprova_todos():
+    """Autônoma que vende marmita e recebe no CPF. O critério não é o documento,
+    é o padrão da conta: ela já teve 12 clientes numa hora em dias anteriores."""
+    seller = new_account()
+    for days_ago in (7, 3):
+        for minute in range(12):
+            send(build_pix(new_payer(), seller, 2500, BASE_TIME - timedelta(days=days_ago, minutes=-minute)))
+    statuses = [send(build_pix(new_payer(), seller, 2500, BASE_TIME + timedelta(minutes=minute)))["status"]
+                for minute in range(12)]
+    assert statuses == ["approved"] * 12
+
+
 def test_rajada_do_mesmo_pagador_pede_2fa_sem_recusar_sozinha():
     payer = new_payer()
     payee = warm_up_payer(payer)

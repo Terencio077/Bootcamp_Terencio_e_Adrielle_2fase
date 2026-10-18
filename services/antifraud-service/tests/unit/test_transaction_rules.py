@@ -40,6 +40,30 @@ def test_destino_antigo_nao_pontua():
 
 # ── TX02 Concentração de pagadores ─────────────────────────────────────
 
+
+def test_legitimo_restaurante_que_sempre_lota_nao_pontua_mesmo_com_cpf():
+    # 30 pagadores na hora, mas o pico dela no último mês foi 25: é o normal da conta.
+    assert PayerConcentration().evaluate(make_pix(), history(distinct_other_payers=29, peak=25), P) is None
+
+
+def test_conta_que_nao_recebia_de_ninguem_pontua_tudo():
+    hit = PayerConcentration().evaluate(make_pix(), history(distinct_other_payers=9, peak=0), P)
+    assert hit.points == P.concentration_person_high_points
+
+
+def test_cnpj_sem_historico_nao_escapa_so_por_ser_cnpj_quando_o_volume_explode():
+    hit = PayerConcentration().evaluate(make_pix(destination_document=COMPANY),
+                                        history(distinct_other_payers=40, peak=2), P)
+    assert hit.points == P.concentration_company_high_points
+    assert hit.evidence["excess_over_usual"] == 41 - 3
+
+
+def test_movimento_bem_acima_do_proprio_pico_pontua():
+    # pico 4 → normal até 6; 15 pagadores = excesso de 9 (≥ 5 em CPF).
+    hit = PayerConcentration().evaluate(make_pix(), history(distinct_other_payers=14, peak=4), P)
+    assert hit.points == P.concentration_person_points
+
+
 COMPANY = "12345678000195"
 
 

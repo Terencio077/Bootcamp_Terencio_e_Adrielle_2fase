@@ -103,6 +103,7 @@ class DestinationHistory:
 
     distinct_other_payers_in_window: int = 0   # pagadores diferentes do atual, na janela de concentração
     rejected_payers_in_window: int = 0         # pagadores distintos recusados por risco da transação
+    peak_payers_30d: int = 0                   # maior nº de pagadores distintos numa hora, nos 30 dias anteriores
 
 
 @dataclass(frozen=True)
