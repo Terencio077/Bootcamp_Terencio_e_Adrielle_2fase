@@ -7,7 +7,6 @@ from rules.rule import FORCE_TWO_FACTOR, TRANSACTION, Rule, RuleHit
 
 
 class YoungDestination(Rule):
-
     code = "TX01"
     axis = TRANSACTION
     name = "Conta de destino recém-aberta"
@@ -28,7 +27,6 @@ class YoungDestination(Rule):
 
 
 class PayerConcentration(Rule):
-
     code = "TX02"
     axis = TRANSACTION
     name = "Concentração de pagadores acima do padrão da conta"
@@ -58,7 +56,6 @@ class PayerConcentration(Rule):
 
 
 class RejectedDestination(Rule):
-
     code = "TX03"
     axis = TRANSACTION
     name = "Destino com recusas recentes"
@@ -73,7 +70,6 @@ class RejectedDestination(Rule):
 
 
 class OutOfProfileAmount(Rule):
-
     code = "TX04"
     axis = TRANSACTION
     name = "Valor fora do perfil"
@@ -102,7 +98,6 @@ class OutOfProfileAmount(Rule):
 
 
 class UnusualDailySum(Rule):
-
     code = "TX05"
     axis = TRANSACTION
     name = "Soma do dia fora do padrão"
@@ -146,7 +141,6 @@ class UnusualDailySum(Rule):
 
 
 class Structuring(Rule):
-
     code = "TX06"
     axis = TRANSACTION
     name = "Fracionamento"
@@ -177,7 +171,6 @@ class Structuring(Rule):
 
 
 class NightLimit(Rule):
-
     code = "TX07"
     axis = TRANSACTION
     name = "Limite noturno"
@@ -203,7 +196,6 @@ class NightLimit(Rule):
 
 
 class FirstPaymentToPayee(Rule):
-
     code = "TX08"
     axis = TRANSACTION
     name = "Primeiro Pix para este recebedor"
@@ -234,7 +226,6 @@ def night_window_start(moment: datetime, parameters: Parameters) -> Optional[dat
 
 
 class PayerQueueOverflow(Rule):
-
     code = "TX09"
     axis = TRANSACTION
     name = "Pix simultâneos demais do mesmo pagador"

@@ -6,7 +6,6 @@ from rules.rule import TRANSACTION, Rule, RuleHit
 
 
 class RecurringPayee(Rule):
-
     code = "TR01"
     axis = TRANSACTION
     name = "Recebedor recorrente"
@@ -37,7 +36,6 @@ class RecurringPayee(Rule):
 
 
 class OwnAccount(Rule):
-
     code = "TR02"
     axis = TRANSACTION
     name = "Mesma titularidade"

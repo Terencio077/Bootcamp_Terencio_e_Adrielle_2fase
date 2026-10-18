@@ -9,7 +9,6 @@ from rules.geo import haversine_km
 
 
 class UntrustedDevice(Rule):
-
     code = "ID01"
     axis = IDENTITY
     name = "Dispositivo não confiável"
@@ -36,7 +35,6 @@ class UntrustedDevice(Rule):
 
 
 class UntrustedDeviceLimit(Rule):
-
     code = "ID02"
     axis = IDENTITY
     name = "Limite de dispositivo não cadastrado"
@@ -65,7 +63,6 @@ class UntrustedDeviceLimit(Rule):
 
 
 class ImpossibleTravel(Rule):
-
     code = "ID03"
     axis = IDENTITY
     name = "Viagem impossível"
@@ -94,7 +91,6 @@ class ImpossibleTravel(Rule):
 
 
 class Velocity(Rule):
-
     code = "ID04"
     axis = IDENTITY
     name = "Rajada de Pix"
@@ -113,7 +109,6 @@ class Velocity(Rule):
 
 
 class NewChannel(Rule):
-
     code = "ID05"
     axis = IDENTITY
     name = "Canal novo"
@@ -129,7 +124,6 @@ class NewChannel(Rule):
 
 
 class UnusualDawn(Rule):
-
     code = "ID06"
     axis = IDENTITY
     name = "Madrugada fora do hábito"

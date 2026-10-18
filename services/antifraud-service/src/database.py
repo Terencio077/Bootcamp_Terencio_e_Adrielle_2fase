@@ -13,7 +13,6 @@ SessionLocal = sessionmaker(bind=engine, autoflush=False)
 
 
 class Context:
-
     def __init__(self) -> None:
         self.db_session: Optional[Session] = None
 

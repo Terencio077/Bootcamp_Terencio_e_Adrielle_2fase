@@ -18,7 +18,6 @@ AccountKey = Tuple[str, str, str]
 
 @dataclass(frozen=True)
 class PixRequest:
-
     pix_id: str
     amount_cents: int
     transaction_date: datetime
@@ -44,7 +43,6 @@ class PixRequest:
 
 @dataclass(frozen=True)
 class PastPix:
-
     transaction_date: datetime
     amount_cents: int
     status: str
@@ -66,7 +64,6 @@ class PastPix:
 
 @dataclass(frozen=True)
 class DestinationHistory:
-
     distinct_other_payers_in_window: int = 0
     rejected_payers_in_window: int = 0
     peak_payers_30d: int = 0

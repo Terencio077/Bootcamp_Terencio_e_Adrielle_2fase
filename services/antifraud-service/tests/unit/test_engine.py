@@ -9,7 +9,6 @@ engine = DecisionEngine()
 
 
 class FixedRule(Rule):
-
     def __init__(self, axis: str, points: int, effect: str = "SCORE", code: str = "FX01") -> None:
         self.code, self.axis, self.points, self.effect = code, axis, points, effect
 

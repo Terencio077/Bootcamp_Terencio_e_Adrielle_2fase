@@ -7,7 +7,6 @@ from rules import Decision, PixRequest
 
 
 class PixRepository:
-
     def __init__(self, context: Context) -> None:
         self.session = context.db_session
         self._domain_ids = {}

@@ -13,7 +13,6 @@ from utils.request_hash import request_hash
 
 
 class PixTransactionController(BaseController):
-
     def __init__(self) -> None:
         super().__init__(__name__)
         self.pix_repository = PixRepository(self.context)

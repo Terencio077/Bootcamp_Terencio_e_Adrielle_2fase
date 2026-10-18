@@ -9,14 +9,16 @@ from rules import DestinationHistory, History, Parameters, PastPix, PixRequest
 
 
 class HistoryRepository:
+    def __init__(self, context: Context) -> None:
+        self.session = context.db_session
 
     def lock_participants(self, pix: PixRequest, timeout_ms: int) -> bool:
         savepoint = self.session.begin_nested()
         try:
-            self.session.execute(text(f"SET LOCAL lock_timeout = '{int(timeout_ms)}ms'"))
+            self.session.execute(text("SELECT set_config('lock_timeout', :value, true)"), {"value": f"{int(timeout_ms)}ms"})
             self.session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
                                  {"key": f"payer:{pix.source_document}"})
-            self.session.execute(text("SET LOCAL lock_timeout = 0"))
+            self.session.execute(text("SELECT set_config('lock_timeout', '0', true)"))
             savepoint.commit()
             return True
         except OperationalError as error:
@@ -24,9 +26,6 @@ class HistoryRepository:
                 raise
             savepoint.rollback()
             return False
-
-    def __init__(self, context: Context) -> None:
-        self.session = context.db_session
 
     def load(self, pix: PixRequest, parameters: Parameters, payer_lock_timed_out: bool = False) -> History:
         first_seen, baseline = self.payer_aggregates(pix)
