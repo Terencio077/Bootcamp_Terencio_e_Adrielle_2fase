@@ -1,16 +1,3 @@
-"""Geradores e atalhos dos testes de integração.
-
-O banco nunca é limpo entre testes. Cada teste inventa o próprio pagador
-(CPF válido aleatório), as próprias contas de destino e os próprios ids,
-então nenhum teste enxerga o histórico de outro e a ordem não importa —
-o mesmo combinado dos testes da primeira etapa.
-
-O histórico é montado pela porta da frente: cada Pix "do passado" é um
-POST de verdade, com a transaction_date no passado. Como o relógio das
-regras é a data do Pix (e não o do servidor), dá para escrever uma linha
-do tempo exata: "um Pix por dia no último mês", "dez Pix em dez minutos".
-"""
-
 import random
 import uuid
 from datetime import datetime, timedelta
@@ -19,7 +6,6 @@ import requests
 
 from utils.settings import ANTIFRAUD_URL, HEADERS
 
-# Uma terça-feira à tarde, longe da janela noturna. Cada teste parte daqui.
 BASE_TIME = datetime.fromisoformat("2026-09-15T14:00:00-03:00")
 OLD_DATE = "2020-01-10T10:00:00-03:00"
 
@@ -45,7 +31,6 @@ def new_account(opening_date: str = OLD_DATE, document: str = None) -> dict:
 
 
 def new_payer() -> dict:
-    """Um pagador com conta antiga e um aparelho próprio."""
     return {
         "branch": "0001",
         "account_number": str(random.randint(10000, 99999)),
@@ -76,7 +61,6 @@ def post_pix(payload: dict) -> requests.Response:
 
 
 def send(payload: dict) -> dict:
-    """Manda o Pix e devolve a análise; falha alto se a API não aceitou."""
     response = post_pix(payload)
     assert response.status_code == 201, response.text
     return response.json()
@@ -91,14 +75,7 @@ def rules_of(analysis: dict) -> set:
 
 
 def warm_up_payer(payer: dict, days: int = 6, amount: int = 10000, start: datetime = BASE_TIME) -> dict:
-    """Dá histórico ao pagador: um Pix pequeno por dia para o mesmo recebedor.
-
-    O primeiro é de até R$ 200, então é aprovado e o aparelho vira
-    confiável (ID02). Devolve o recebedor, para o teste reaproveitar.
-    """
     payee = new_account()
-    # Um Pix antigo (35 dias) para o relacionamento com o recebedor já ter
-    # passado do mínimo de 30 dias exigido pela recorrência (TR01).
     first = send(build_pix(payer, payee, amount, start - timedelta(days=35)))
     assert first["status"] == "approved", first
     for day in range(days, 0, -1):

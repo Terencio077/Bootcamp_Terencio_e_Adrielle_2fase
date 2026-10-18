@@ -27,7 +27,7 @@ POST /pix/transaction
   ├─ 1. Schema (JSON Schema, como no base-service)          → 400 se o corpo vier errado
   ├─ 2. Idempotência: esse id já foi analisado?             → devolve a análise gravada (200)
   │                                                           mesmo id com outro corpo → 409
-  ├─ 3. Trava de concorrência por pagador e por destino (advisory lock do Postgres)
+  ├─ 3. Trava de concorrência por pagador (advisory lock do Postgres)
   ├─ 4. Histórico: 3 consultas indexadas, antes das regras
   │       • os últimos Pix do PAGADOR (até 500, em 90 dias)
   │       + agregados no banco: 1º Pix do pagador e soma de 30 dias
@@ -40,10 +40,10 @@ POST /pix/transaction
 
 - **O histórico vem de uma vez e só por índices.** O Pix tem poucos segundos para a cadeia inteira, e o Banco Central acompanha o p95 e o p99 do tempo de resposta. Por isso o histórico vem antes das regras, em três consultas indexadas.
 - **O tempo de decisão fica gravado em toda análise** (`decision_latency_ms`). Ele mede da trava até a decisão do motor (passos 3 a 6) e **não inclui** a validação do corpo nem a gravação e o commit. O tempo total de cada requisição aparece no log (`SAIU 201 ... ms`).
-- **Medição feita até agora** (ambiente local, PostgreSQL 16, um processo): Pix isolados decidem em 3 a 6 ms, que é o que a demo mostra. Nas 214 análises da suíte de testes, o p95 ficou em ~20 ms, puxado pelo teste de concorrência, em que 12 Pix simultâneos do mesmo pagador esperam um pelo outro na trava. Ainda não há teste de carga, então esses números não dizem nada sobre o p95 sob volume real.
+- **Medição feita até agora** (ambiente local, PostgreSQL 16, um processo): Pix isolados decidem em 3 a 6 ms, que é o que a demo mostra. Nas 214 análises da suíte de testes, o p95 ficou em ~20 ms, puxado pelo teste de concorrência, em que 12 Pix simultâneos do mesmo pagador esperam um pelo outro na trava. Sob volume, com 100 mil Pix de histórico, ver **`CARGA.md`**: 100 Pix/s de contas diferentes com p95 de 59 ms, 50 Pix/s para a mesma loja com p95 de 220 ms, e nenhum Pix sem decisão no mesmo pagador até 50 Pix/s. O teste de carga mudou três coisas no projeto: 4 processos, fim da trava do destino e a TX09.
 - **As regras são Python puro.** Elas recebem o Pix e o histórico e devolvem um disparo ou nada, sem banco, rede ou relógio. Isso as deixa testáveis em milissegundos e determinísticas.
 - **O relógio das regras é a `transaction_date` do Pix**, com o fuso que veio, e não o relógio do servidor. "Últimos 10 minutos" são os 10 minutos antes *deste* Pix; "noite" é a noite no relógio de quem paga.
-- **Pix simultâneos não se atropelam.** Sem a trava do passo 3, dois Pix do mesmo pagador chegando juntos leem o histórico antes de qualquer um gravar, e a rajada conta errado. Isso foi reproduzido: 12 Pix simultâneos contaram a rajada como `[5, 5, 5, …]` em vez de `5…12`. A trava fila as análises do mesmo pagador e do mesmo destino, e as duas chaves são travadas sempre na mesma ordem para não haver deadlock. É a mesma técnica de travas ordenadas da primeira etapa.
+- **Pix simultâneos do mesmo pagador não se atropelam.** Sem a trava do passo 3, dois Pix do mesmo pagador chegando juntos leem o histórico antes de qualquer um gravar, e a rajada conta errado. Isso foi reproduzido: 12 Pix simultâneos contaram a rajada como `[5, 5, 5, …]` em vez de `5…12`. A trava fila as análises do mesmo pagador. **O destino não é travado, de propósito:** uma versão anterior travava também o destino, e o teste de carga mostrou que isso colocava em fila todos os clientes de uma loja (acima de ~10 Pix/s para a mesma conta, os pagamentos estouravam o tempo). Em chegadas simultâneas, a TX02 pode ver um ou dois pagadores a menos numa janela de uma hora, o que não muda a decisão. Serializar o mesmo pagador não atrapalha ninguém legítimo: uma pessoa não manda dez Pix por segundo. A trava fica no Postgres, então vale também entre os 4 processos da API (`WEB_WORKERS` no Dockerfile).
 
 ### Pontos, pisos e combinação
 
@@ -97,6 +97,7 @@ As 24 h impedem o atalho de aprovar um Pix de R$ 50 e, minutos depois, mandar R$
 | **TX06** Fracionamento | ≥ 3 Pix na última hora entre 90% e 100% de um limite conhecido (R$ 200 do aparelho, R$ 1.000 da noite) | 90–100%, 3 Pix, +30 | Quem conhece o teto quebra o valor em pedaços de R$ 199. A repetição dentro da faixa é que denuncia. |
 | **TX07** Limite noturno | Pagador CPF, entre 20h e 6h (hora local), soma da noite > R$ 1.000 | R$ 1.000. **Piso de 2FA** + 35 pontos | Existe por causa do sequestro relâmpago, em que a vítima passaria no 2FA; por isso fica no eixo da transação. É **limite**, não suspeita: o piso não é derrubado pela confiança, e os pontos somam com outros sinais. Ver as hipóteses logo abaixo. |
 | **TX08** Primeiro Pix para o recebedor | Pagador com histórico, recebedor (CPF/CNPJ) sem nenhum Pix **aprovado** antes (tentativa pendente ou recusada não conta), Pix ≥ R$ 1.000 | +10 | Sozinho é o dia a dia. Existe para somar: destino novo + valor alto + primeira vez é o retrato do golpe. |
+| **TX09** Pix simultâneos demais do mesmo pagador | A análise esperou mais de 0,5 s na fila do pagador (a trava de concorrência) | Piso de 2FA, 0 pontos | Pix do mesmo pagador são analisados em fila, para a rajada e a soma do dia não contarem errado. Quem passa de 0,5 s na fila não fica sem resposta (começou em 2 s; o teste de carga mostrou que esperas longas esgotavam as conexões do banco): é analisado mesmo assim e pede confirmação. Encher essa fila exige ~25 Pix/s do mesmo CPF/CNPJ: um robô esvaziando a conta (o 2FA o barra) ou uma empresa mandando um lote de uma vez. O teste de carga mostrou que, sem isso, o banco recebia **timeout** (nenhuma decisão). As outras regras continuam valendo: um Pix de risco alto é recusado do mesmo jeito. **Pagamento em lote** (folha, repasse a vendedores) é outro produto: aprovação do lote com um único 2FA e envio em ritmo controlado. Fica fora do escopo deste motor, que analisa um Pix por vez. |
 
 **Hipóteses do limite noturno.** O padrão regulatório é R$ 1.000 entre 20h e 6h para pessoa física e MEI, e o cliente pode mudar o horário para 22h–6h e pedir aumento do limite, que leva de 24 a 48 h. O contrato **não informa** a configuração do cliente, e o motor não presume que ela exista:
 - usa o padrão e, acima dele, **pede confirmação** em vez de recusar um limite que talvez tenha sido elevado;
@@ -236,7 +237,7 @@ services/antifraud-service/src/rules/
 ├── device.py            estados de confiança do aparelho
 ├── rule.py              o formato comum de uma regra
 ├── identity_rules.py    ID01–ID06
-├── transaction_rules.py TX01–TX08
+├── transaction_rules.py TX01–TX09
 ├── trust_rules.py       TR01–TR02
 └── engine.py            roda as regras, soma os eixos, aplica pisos e decide
 ```

@@ -1,5 +1,3 @@
-"""Como as notas viram decisão — e os cenários que justificam cada limiar."""
-
 from datetime import datetime, timedelta
 
 from builders import NOW, history, known_payer, long_relationship, make_pix, past
@@ -11,7 +9,6 @@ engine = DecisionEngine()
 
 
 class FixedRule(Rule):
-    """Regra de mentira, para testar a decisão sem depender das regras reais."""
 
     def __init__(self, axis: str, points: int, effect: str = "SCORE", code: str = "FX01") -> None:
         self.code, self.axis, self.points, self.effect = code, axis, points, effect
@@ -31,8 +28,6 @@ def decide(*rules):
     return DecisionEngine(rules=list(rules)).evaluate(make_pix(), history())
 
 
-# ── a tabela de decisão ────────────────────────────────────────────────
-
 def test_sem_pontos_aprova():
     assert decide().status == APPROVED
 
@@ -50,8 +45,6 @@ def test_30_pontos_de_transacao_pedem_2fa_como_pausa_de_confirmacao():
 
 
 def test_transacao_recusa_mais_cedo_que_identidade():
-    # O ponto central do motor: com 60 pontos, a dúvida sobre QUEM ainda se
-    # resolve com 2FA; a dúvida sobre O QUÊ, não.
     assert decide(FixedRule(TRANSACTION, 60)).status == REJECTED
     assert decide(FixedRule(IDENTITY, 60)).status == TWO_FACTOR_REQUIRED
     assert decide(FixedRule(IDENTITY, 80)).status == REJECTED
@@ -83,8 +76,6 @@ def test_regra_quebrada_nao_derruba_a_analise_e_pede_2fa():
     assert decision.hits[0].evidence == {"error": "ZeroDivisionError"}
 
 
-# ── cenários com as regras reais ───────────────────────────────────────
-
 def test_exemplo_do_enunciado_pede_2fa():
     pix = make_pix(
         amount_cents=150000,
@@ -103,8 +94,6 @@ def test_aluguel_para_o_mesmo_recebedor_de_sempre_passa_sem_friccao():
 
 
 def test_golpe_dono_da_conta_pagando_conta_nova_e_recusado_sem_2fa():
-    # Aparelho de sempre (identidade limpa), mas valor muito acima do perfil,
-    # para uma conta aberta há 2 dias, recebedor nunca pago. 2FA não ajudaria.
     pix = make_pix(amount_cents=300000, destination_document="55566677788",
                    destination_account=("00000000", "0001", "999"),
                    destination_opening_date=NOW - timedelta(days=2))
@@ -123,8 +112,6 @@ def test_pix_pequeno_do_aparelho_de_sempre_aprova():
     assert engine.evaluate(make_pix(), history(*known_payer())).status == APPROVED
 
 
-# ── política de falha por eixo ─────────────────────────────────────────
-
 class BrokenIdentityRule(Rule):
     code, axis = "BR02", IDENTITY
 
@@ -142,18 +129,14 @@ def test_regra_de_identidade_quebrada_pede_2fa_mesmo_em_pix_alto():
     assert decision.status == TWO_FACTOR_REQUIRED
 
 
-# ── regulação não é compensável por confiança ──────────────────────────
-
 NIGHT = NOW.replace(hour=22, minute=15)
 
 
 def rent_payer() -> list:
-    """Pagador que paga o mesmo recebedor (aluguel de R$ 1.500) há meses."""
     return known_payer(amount_cents=150000) + long_relationship(amount_cents=150000)
 
 
 def test_furo_noturno_acima_do_limite_para_recebedor_recorrente_nao_aprova():
-    # O furo que o revisor reproduziu: +35 do noturno, -30 da recorrência, aprovado.
     decision = engine.evaluate(make_pix(amount_cents=150000, transaction_date=NIGHT), history(*rent_payer()))
     assert {"TX07", "TR01"} <= {hit.code for hit in decision.hits}
     assert decision.status == TWO_FACTOR_REQUIRED
@@ -163,8 +146,6 @@ def test_legitimo_noturno_dentro_do_limite_para_recebedor_recorrente_aprova():
     decision = engine.evaluate(make_pix(amount_cents=90000, transaction_date=NIGHT), history(*rent_payer()))
     assert decision.status == APPROVED
 
-
-# ── nenhum sinal isolado bloqueia; a combinação sim ────────────────────
 
 def friends_burst() -> list:
     return [past(minutes_ago=i + 1, amount_cents=5000, destination_document=f"0000000000{i}") for i in range(9)]
@@ -206,10 +187,7 @@ def test_legitimo_comercio_antigo_recebendo_de_dez_pagadores_aprova_o_cliente_ha
     assert decision.status == APPROVED
 
 
-# ── Política B: o relacionamento precisa ter tamanho ───────────────────
-
 def test_tres_pix_de_1_real_em_dias_diferentes_nao_aprovam_5000():
-    # O experimento da revisão externa: antes, TX04 +40 e TR01 -30 davam 10 e aprovavam.
     warming = [past(minutes_ago=60 * 24 * day, amount_cents=100) for day in (1, 2, 3)]
     others = [past(minutes_ago=60 * 24 * day, destination_document="11122233344") for day in (4, 5, 6)]
     decision = engine.evaluate(make_pix(amount_cents=500000), history(*warming, *others))
@@ -221,13 +199,10 @@ def test_legitimo_emprestimo_ao_amigo_de_sempre_pede_2fa_e_nao_recusa():
     friend = [past(minutes_ago=60 * 24 * day, amount_cents=5000) for day in (1, 8, 15, 22, 29)]
     decision = engine.evaluate(make_pix(amount_cents=200000), history(*friend))
     assert decision.status == TWO_FACTOR_REQUIRED
-    assert "TX05" not in {hit.code for hit in decision.hits}   # um Pix grande não conta duas vezes
+    assert "TX05" not in {hit.code for hit in decision.hits}
 
-
-# ── Revisão 3: os três furos reproduzidos pelo revisor ─────────────────
 
 def exposure_history() -> list:
-    """Maior Pix aprovado de R$ 1.500 e três de R$ 1.500 nas últimas horas, para destinos diferentes."""
     old = [past(minutes_ago=60 * 24 * day, amount_cents=150000, destination_document=f"9000000000{day % 10}")
            for day in range(8, 20)]
     today = [past(minutes_ago=60 * hour, amount_cents=150000, destination_document=f"8000000000{hour}")
@@ -254,8 +229,6 @@ def test_furo_tx08_tentativa_pendente_nao_tira_o_primeiro_pagamento():
 
 
 def test_furo_corte_de_500_antiguidade_vem_do_agregado():
-    # A lista chega cortada (só os últimos dias), mas o agregado do banco
-    # informa que o pagador existe há meses: a TX05 continua avaliando.
     recent_only = [past(minutes_ago=60 * hour, amount_cents=150000, destination_document=f"8000000000{hour}")
                    for hour in (1, 2, 3)]
     cut = History(payer_pix=sorted(recent_only, key=lambda p: p.transaction_date, reverse=True),

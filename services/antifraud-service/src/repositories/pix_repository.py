@@ -7,7 +7,6 @@ from rules import Decision, PixRequest
 
 
 class PixRepository:
-    """A única porta do banco para gravar e ler análises. Não conhece HTTP."""
 
     def __init__(self, context: Context) -> None:
         self.session = context.db_session
@@ -20,13 +19,10 @@ class PixRepository:
                 model.enumerator == enumerator).scalar()
         return self._domain_ids[cache_key]
 
-    # ── leitura ────────────────────────────────────────────────────────
-
     def find_transaction(self, pix_id: str) -> Optional[PixTransaction]:
         return self.session.query(PixTransaction).filter(PixTransaction.pix_id == pix_id).first()
 
     def find_analysis(self, pix_id: str) -> Optional[tuple]:
-        """Devolve (transação, análise, status, regras disparadas), ou None."""
         row = (
             self.session.query(PixTransaction, PixAnalysis, AnalysisStatus.enumerator)
             .join(PixAnalysis, PixAnalysis.pix_transaction_id == PixTransaction.id)
@@ -47,11 +43,8 @@ class PixRepository:
         )
         return transaction, analysis, status, hits
 
-    # ── escrita ────────────────────────────────────────────────────────
-
     def save(self, payload: dict, pix: PixRequest, request_hash: str, decision: Decision,
              latency_ms: float) -> None:
-        """Grava o que chegou, o que foi decidido e por quê. Quem dá commit é o controller."""
         transaction = PixTransaction()
         transaction.pix_id = pix.pix_id
         transaction.request_hash = request_hash

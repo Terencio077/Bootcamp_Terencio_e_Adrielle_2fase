@@ -4,10 +4,14 @@ __pycache__/
 .pytest_cache/
 .env
 
-# Arquivos de trabalho do Claude (zips das versões), não fazem parte do projeto
 Claude outputs/
-
-# Material de estudo e preparação do time (não faz parte da entrega)
 ESTUDO_APRESENTACAO.md
 PREPARACAO.md
 Calibracao_Antifraude.xlsx
+
+testes_revisao_v3/
+verificar_motor.py
+resultado_motor_*.txt
+diagnostico_janta.txt
+resultado_janta.txt
+benchmark_antifraude/resultados/

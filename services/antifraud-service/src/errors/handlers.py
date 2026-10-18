@@ -76,10 +76,6 @@ def register_error_handlers(application: FastAPI) -> None:
         description = describe_validation_error(first_error)
         origin = first_error.get("loc", [""])[0]
 
-        # Hoje este ramo não é alcançado: o corpo é validado pelo JSON
-        # Schema (utils/schema_handler.py) e o único parâmetro de endereço,
-        # o id do Pix, é `str`. Ele fica para o dia em que uma rota
-        # declarar um parâmetro tipado e depender do FastAPI para validá-lo.
         if origin in ("query", "path"):
             return qi_exception_to_response(InvalidParameter(description))
 

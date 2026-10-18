@@ -1,15 +1,3 @@
-"""Regras de CONFIANÇA — descontam pontos do eixo da transação.
-
-Sem elas, o motor só sabe desconfiar, e quem paga o aluguel todo mês
-para o mesmo dono do apartamento esbarraria nas mesmas regras que um
-golpista. A fricção é prejuízo também: estas regras são o "não travar
-quem só quer pagar o aluguel" do enunciado.
-
-Elas NÃO descontam do eixo da identidade. Pagar sempre a mesma pessoa
-não prova que é o dono da conta quem está pagando: um ladrão com o
-celular desbloqueado também consegue pagar o aluguel de alguém.
-"""
-
 from typing import Optional
 
 from rules.context import APPROVED, History, PixRequest, business_date
@@ -18,23 +6,6 @@ from rules.rule import TRANSACTION, Rule, RuleHit
 
 
 class RecurringPayee(Rule):
-    """TR01 — o pagador já pagou este recebedor, com aprovação, em dias diferentes.
-
-    "Dias diferentes" é o que separa recorrência de "aquecimento": um
-    fraudador com a conta na mão poderia mandar três Pix pequenos para a
-    conta laranja na mesma tarde e, no quarto, o valor grande com o
-    desconto. Pagar alguém em três dias distintos indica um histórico de
-    relacionamento — não prova identidade, por isso não desconta da
-    identidade, e não derruba os pisos regulatórios.
-
-    Materialidade (decisão do time): o relacionamento só avaliza valores do
-    mesmo tamanho. Se o Pix passa de 5x o maior Pix aprovado para este
-    recebedor, o desconto não vale — três Pix de R$ 1 não avalizam R$ 5.000.
-    Tempo (decisão do time): o relacionamento precisa ter pelo menos 30 dias
-    desde o primeiro Pix aprovado ao recebedor; antes disso, ainda é novo.
-    A regra continua aparecendo no metadata, com 0 pontos e o motivo, para o
-    atendimento entender por que a recorrência não ajudou.
-    """
 
     code = "TR01"
     axis = TRANSACTION
@@ -66,7 +37,6 @@ class RecurringPayee(Rule):
 
 
 class OwnAccount(Rule):
-    """TR02 — o pagador está mandando para ele mesmo (mesmo CPF/CNPJ em outra conta)."""
 
     code = "TR02"
     axis = TRANSACTION

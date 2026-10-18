@@ -22,5 +22,5 @@ USER user
 
 # --no-server-header: o uvicorn nao anuncia a propria versao, que e
 # informacao de menos pra quem procura uma versao com falha conhecida.
-CMD uvicorn app:app --host 0.0.0.0 --port 3000 --no-server-header
+CMD uvicorn app:app --host 0.0.0.0 --port 3000 --workers ${WEB_WORKERS:-4} --no-server-header
 

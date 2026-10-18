@@ -1,10 +1,3 @@
-"""Eixo identidade: cada regra dispara no limite e fica quieta logo abaixo dele.
-
-Cada brecha corrigida tem dois testes lado a lado: o que reproduz o furo
-(e agora falha para o fraudador) e o caso legítimo parecido com ele (que
-continua passando sem fricção desnecessária).
-"""
-
 from datetime import timedelta
 
 from builders import NOW, history, known_payer, make_pix, past
@@ -22,8 +15,6 @@ from rules.identity_rules import (
 )
 from rules.rule import FORCE_TWO_FACTOR
 
-
-# ── Estados do aparelho ────────────────────────────────────────────────
 
 def test_aparelho_nunca_visto_e_novo():
     assert device_trust("device-z", NOW, history(*known_payer()), P) == NEW
@@ -58,8 +49,6 @@ def test_tres_dias_seguidos_nao_bastam_sem_uma_semana():
     assert device_trust("device-a", NOW, history(*uses), P) == OBSERVED
 
 
-# ── ID01 Dispositivo não confiável ─────────────────────────────────────
-
 def test_aparelho_confiavel_nao_pontua():
     assert UntrustedDevice().evaluate(make_pix(), history(*known_payer()), P) is None
 
@@ -70,8 +59,6 @@ def test_aparelho_novo_para_quem_tem_aparelho_confiavel_pontua_cheio():
 
 
 def test_furo_segundo_pix_do_aparelho_novo_logo_apos_o_2fa_continua_suspeito():
-    # O furo que o revisor reproduziu: celular novo pede 2FA; 11 minutos
-    # depois, um segundo Pix do mesmo celular era aprovado sem prova nenhuma.
     first_try = past(minutes_ago=11, device_id="device-b", amount_cents=15000, status=TWO_FACTOR_REQUIRED)
     hit = UntrustedDevice().evaluate(make_pix(device_id="device-b", amount_cents=15000),
                                      history(*known_payer(), first_try), P)
@@ -92,8 +79,6 @@ def test_segundo_pix_do_primeiro_contato_continua_como_primeiro_contato():
     hit = UntrustedDevice().evaluate(make_pix(), history(past(minutes_ago=10)), P)
     assert hit.points == P.first_seen_payer_device_points
 
-
-# ── ID02 Limite de dispositivo não cadastrado ──────────────────────────
 
 def test_aparelho_nao_confirmado_ate_200_reais_passa():
     assert UntrustedDeviceLimit().evaluate(make_pix(amount_cents=20000), history(), P) is None
@@ -131,8 +116,6 @@ def test_pix_recusado_nao_conta_no_teto_do_dia():
                                            history(rejected), P) is None
 
 
-# ── ID03 Viagem impossível ─────────────────────────────────────────────
-
 SAO_PAULO = (-23.55, -46.63)
 MANAUS = (-3.12, -60.02)
 CAMPINAS = (-22.90, -47.06)
@@ -161,8 +144,6 @@ def test_sem_geolocalizacao_a_regra_nao_roda():
     assert ImpossibleTravel().evaluate(make_pix(), history(before), P) is None
 
 
-# ── ID04 Rajada ────────────────────────────────────────────────────────
-
 def burst(count: int, **overrides) -> list:
     return [past(minutes_ago=i + 1, **overrides) for i in range(count)]
 
@@ -189,8 +170,6 @@ def test_pix_fora_da_janela_nao_entra_na_rajada():
     old = [past(minutes_ago=11 + i) for i in range(20)]
     assert Velocity().evaluate(make_pix(), history(*old), P) is None
 
-
-# ── ID05 Canal novo e ID06 Madrugada ───────────────────────────────────
 
 def test_canal_novo_para_quem_sempre_usou_o_app():
     assert NewChannel().evaluate(make_pix(channel="internet_banking"), history(*known_payer()), P) is not None

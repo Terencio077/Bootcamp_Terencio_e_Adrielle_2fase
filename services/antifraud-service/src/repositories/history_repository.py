@@ -1,6 +1,7 @@
 from datetime import timedelta, timezone
 
 from sqlalchemy import func, text
+from sqlalchemy.exc import OperationalError
 
 from database import Context
 from models import AnalysisStatus, PixAnalysis, PixTransaction
@@ -8,72 +9,36 @@ from rules import DestinationHistory, History, Parameters, PastPix, PixRequest
 
 
 class HistoryRepository:
-    """Monta o passado que o motor precisa, em QUATRO consultas por Pix.
 
-    O orçamento de tempo de um Pix é de poucos segundos para a cadeia
-    inteira, e o antifraude é só um elo dela. Por isso o histórico não é
-    consultado regra a regra: ele vem de uma vez, antes das regras, e cada
-    consulta anda num índice criado para ela (ver database/database.sql).
-
-    1. O passado do PAGADOR (até 500 Pix dos últimos 90 dias). Quase todas
-       as regras saem desta lista: rajada, aparelho, perfil, noite, soma do
-       dia, geolocalização, recorrência.
-    2. Quantos pagadores DIFERENTES tentaram pagar o destino na última hora.
-    3. Quantos pagadores diferentes tiveram Pix para o destino recusado no
-       último mês POR RISCO DA TRANSAÇÃO (ver rejected_destination_payers),
-       e o pico de pagadores distintos por hora do destino nos últimos 30
-       dias (o padrão da própria conta, usado pela TX02).
-
-    O "agora" das consultas é a transaction_date do Pix, nunca o NOW() do
-    banco: o histórico de um Pix é o que aconteceu antes DELE.
-
-    4. Agregados do pagador sobre o histórico inteiro: primeiro Pix e saída
-       de 30 dias (ver payer_aggregates).
-
-    O LIMITE DE 500: a lista do pagador é cortada em 500 linhas. Antiguidade
-    e média de 30 dias vêm do agregado (4), que não sofre o corte. O que
-    ainda usa só a lista: perfil (TX04), recorrência (TR01), aparelho e
-    hábitos. Para quem faz mais de 500 Pix em 90 dias, esses sinais olham
-    apenas os 500 mais recentes — limite conhecido, documentado no README.
-    """
-
-    def lock_participants(self, pix: PixRequest) -> None:
-        """Serializa análises simultâneas do mesmo pagador ou do mesmo destino.
-
-        Sem isto, dois Pix do mesmo pagador chegando juntos leem o histórico
-        antes de qualquer um gravar, e a rajada (ou a soma do dia) conta um a
-        menos para cada um. A trava é do próprio Postgres (advisory lock de
-        transação): sai sozinha no commit ou no rollback.
-
-        As duas chaves são travadas SEMPRE na mesma ordem (ordenadas), pelo
-        mesmo motivo das travas ordenadas da primeira etapa: A pagando B e B
-        pagando A ao mesmo tempo esperam uma pela outra em fila, em vez de
-        travarem para sempre (deadlock).
-        """
-        participant, branch, account_number = pix.destination_account
-        keys = sorted({f"payer:{pix.source_document}", f"destination:{participant}:{branch}:{account_number}"})
-        for key in keys:
-            self.session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"), {"key": key})
+    def lock_participants(self, pix: PixRequest, timeout_ms: int) -> bool:
+        savepoint = self.session.begin_nested()
+        try:
+            self.session.execute(text(f"SET LOCAL lock_timeout = '{int(timeout_ms)}ms'"))
+            self.session.execute(text("SELECT pg_advisory_xact_lock(hashtext(:key))"),
+                                 {"key": f"payer:{pix.source_document}"})
+            self.session.execute(text("SET LOCAL lock_timeout = 0"))
+            savepoint.commit()
+            return True
+        except OperationalError as error:
+            if getattr(error.orig, "pgcode", None) != "55P03":
+                raise
+            savepoint.rollback()
+            return False
 
     def __init__(self, context: Context) -> None:
         self.session = context.db_session
 
-    def load(self, pix: PixRequest, parameters: Parameters) -> History:
+    def load(self, pix: PixRequest, parameters: Parameters, payer_lock_timed_out: bool = False) -> History:
         first_seen, baseline = self.payer_aggregates(pix)
         return History(
             payer_pix=self.payer_history(pix, parameters),
             destination=self.destination_history(pix, parameters),
             payer_first_seen=first_seen,
             payer_baseline_30d_cents=baseline,
+            payer_lock_timed_out=payer_lock_timed_out,
         )
 
     def payer_aggregates(self, pix: PixRequest) -> tuple:
-        """Antiguidade e saída de 30 dias do pagador, sobre o histórico INTEIRO.
-
-        A lista do pagador é cortada em 500 linhas; sem estes agregados, um
-        pagador intenso perderia a evidência de antiguidade e a TX05 deixaria
-        de avaliar. Uma consulta só, no mesmo índice (pagador, data).
-        """
         result = self.session.execute(text("""
             SELECT MIN(t.transaction_date),
                    COALESCE(SUM(t.amount_cents) FILTER (
@@ -129,9 +94,6 @@ class HistoryRepository:
 
         rejected_payers = self.rejected_destination_payers(pix, parameters)
 
-        # Pico da própria conta: maior nº de pagadores distintos numa mesma
-        # hora, nos 30 dias ANTERIORES à janela atual (a janela não entra,
-        # senão a rajada de hoje viraria o "normal" dela mesma).
         peak = self.session.execute(text("""
             SELECT COALESCE(MAX(n), 0) FROM (
                 SELECT COUNT(DISTINCT source_document) AS n
@@ -150,18 +112,6 @@ class HistoryRepository:
                                   peak_payers_30d=int(peak or 0))
 
     def rejected_destination_payers(self, pix: PixRequest, parameters: Parameters) -> int:
-        """Pagadores distintos cujo Pix para este destino foi recusado por risco DA TRANSAÇÃO.
-
-        Uma recusa só conta se ela se sustentava pelo lado da transação SEM a
-        própria TX03: a soma dos pontos das regras de transação, tirando a
-        TX03, chegou ao limite de recusa — ou OUTRA regra de transação recusou
-        sozinha (efeito REJECT). Ficam de fora:
-        • recusas causadas pelo pagador (viagem impossível, rajada);
-        • qualquer contribuição da própria TX03, nos pontos E no bloqueio, para
-          ela não se alimentar das próprias decisões;
-        • recusas por falha técnica (FAILSAFE_*): um defeito nosso não é
-          evidência de fraude do recebedor.
-        """
         participant, branch, account_number = pix.destination_account
         query = text("""
             SELECT COUNT(DISTINCT t.source_document)
@@ -199,9 +149,6 @@ class HistoryRepository:
 
 
 def to_past_pix(transaction: PixTransaction, status: str) -> PastPix:
-    # O banco devolve o instante em UTC; as regras de horário (noite,
-    # madrugada) precisam da hora no relógio de quem pagou, então o fuso
-    # original volta a ser aplicado aqui.
     local_zone = timezone(timedelta(minutes=transaction.utc_offset_minutes))
     return PastPix(
         transaction_date=transaction.transaction_date.astimezone(local_zone),

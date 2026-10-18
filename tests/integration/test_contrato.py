@@ -1,5 +1,3 @@
-"""O contrato da API: formato, idempotência, gravação e erros."""
-
 import requests
 
 from utils.pix_utils import BASE_TIME, build_pix, get_pix, new_account, new_payer, post_pix, send
@@ -121,8 +119,6 @@ def test_documento_com_e_sem_pontuacao_e_a_mesma_pessoa():
     digits_only = dict(payer, owner={"document_number": payer["owner"]["document_number"]
                                      .replace(".", "").replace("-", "")})
     analysis = send(build_pix(digits_only, payee, 5000, BASE_TIME.replace(minute=30)))
-    # Se fossem duas pessoas, o aparelho seria "novo" para o segundo pagador;
-    # sendo a mesma, ele já foi observado no Pix anterior.
     device = next(hit for hit in analysis["metadata"]["rules_triggered"] if hit["rule"] == "ID01")
     assert device["evidence"]["device_state"] == "observed"
 
@@ -134,8 +130,6 @@ def test_sem_internal_token_e_403():
 
 def test_exemplo_do_enunciado_pede_2fa():
     payload = dict(EXAMPLE, id=a_pix()["id"])
-    # Documento do pagador próprio deste teste, para o histórico de outras
-    # execuções não interferir.
     payload["source_account"] = dict(EXAMPLE["source_account"], owner={"document_number": new_payer()["owner"]
                                                                        ["document_number"]})
     payload["destination_account"] = dict(new_account(opening_date="2026-10-10T09:00:00-03:00"))
@@ -155,8 +149,6 @@ def test_mesmo_pix_chegando_varias_vezes_ao_mesmo_tempo_gera_uma_analise_so():
 
 
 def test_mesmo_id_com_corpos_diferentes_ao_mesmo_tempo_mantem_so_o_primeiro():
-    # Pagadores diferentes no corpo: as chegadas NÃO dividem a trava do pagador,
-    # e a duplicidade só aparece no UNIQUE(pix_id) do banco, durante o flush.
     from concurrent.futures import ThreadPoolExecutor
 
     pix_id = a_pix()["id"]

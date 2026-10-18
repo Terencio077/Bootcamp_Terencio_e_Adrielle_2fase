@@ -1,5 +1,3 @@
-"""Eixo transação e regras de confiança: limite exato e logo abaixo."""
-
 from datetime import timedelta
 
 from builders import NOW, PAYER, history, known_payer, long_relationship, make_pix, past
@@ -21,8 +19,6 @@ from rules.transaction_rules import (
 from rules.trust_rules import OwnAccount, RecurringPayee
 
 
-# ── TX01 Destino recém-aberto ──────────────────────────────────────────
-
 def test_destino_aberto_ha_3_dias():
     hit = YoungDestination().evaluate(make_pix(destination_opening_date=NOW - timedelta(days=3)), history(), P)
     assert hit.points == P.young_destination_points
@@ -38,11 +34,7 @@ def test_destino_antigo_nao_pontua():
                                        history(), P) is None
 
 
-# ── TX02 Concentração de pagadores ─────────────────────────────────────
-
-
 def test_legitimo_restaurante_que_sempre_lota_nao_pontua_mesmo_com_cpf():
-    # 30 pagadores na hora, mas o pico dela no último mês foi 25: é o normal da conta.
     assert PayerConcentration().evaluate(make_pix(), history(distinct_other_payers=29, peak=25), P) is None
 
 
@@ -59,7 +51,6 @@ def test_cnpj_sem_historico_nao_escapa_so_por_ser_cnpj_quando_o_volume_explode()
 
 
 def test_movimento_bem_acima_do_proprio_pico_pontua():
-    # pico 4 → normal até 6; 15 pagadores = excesso de 9 (≥ 5 em CPF).
     hit = PayerConcentration().evaluate(make_pix(), history(distinct_other_payers=14, peak=4), P)
     assert hit.points == P.concentration_person_points
 
@@ -83,7 +74,6 @@ def test_cpf_com_dez_pagadores_pontua_mais_mas_nao_bloqueia_sozinho():
 
 
 def test_legitimo_comercio_com_dez_pagadores_na_hora_nao_pontua():
-    # A lanchonete na hora do almoço: o que o revisor reproduziu como bloqueio indevido.
     assert PayerConcentration().evaluate(make_pix(destination_document=COMPANY),
                                          history(distinct_other_payers=9), P) is None
 
@@ -94,10 +84,6 @@ def test_comercio_com_volume_muito_alto_pontua_pouco():
     assert hit.points == P.concentration_company_high_points
 
 
-# ── TX03 Destino com recusas ───────────────────────────────────────────
-# Quem filtra a CAUSA das recusas é o repository (testado na integração);
-# aqui chega a contagem de pagadores distintos já filtrada.
-
 def test_uma_vitima_so_nao_marca_o_destino():
     assert RejectedDestination().evaluate(make_pix(), history(rejected=1), P) is None
 
@@ -107,8 +93,6 @@ def test_dois_pagadores_recusados_marcam_o_destino_com_peso_limitado():
         hit = RejectedDestination().evaluate(make_pix(), history(rejected=payers), P)
         assert hit.points == P.rejected_destination_points
 
-
-# ── TX04 Valor fora do perfil ──────────────────────────────────────────
 
 def test_ate_o_dobro_do_maior_pix_e_normal():
     assert OutOfProfileAmount().evaluate(make_pix(amount_cents=20000), history(*known_payer()), P) is None
@@ -125,8 +109,6 @@ def test_mais_que_cinco_vezes_o_maior_pix_pontua_mais():
 
 
 def test_compara_com_o_maior_e_nao_com_a_media():
-    # O aluguel de R$ 1.500 uma vez, e Pix de R$ 100 o resto do tempo: um
-    # novo aluguel não é "fora do perfil", mesmo sendo 15x a média.
     rent = past(minutes_ago=60 * 24 * 30, amount_cents=150000)
     assert OutOfProfileAmount().evaluate(make_pix(amount_cents=150000),
                                          history(*known_payer(), rent), P) is None
@@ -137,8 +119,6 @@ def test_sem_perfil_so_valor_alto_pesa():
     assert OutOfProfileAmount().evaluate(make_pix(amount_cents=500001), history(), P).points == \
         P.no_profile_high_amount_points
 
-
-# ── TX05 Soma do dia ───────────────────────────────────────────────────
 
 def month_of_small_pix() -> list:
     return [past(minutes_ago=60 * 24 * day + 60, amount_cents=10000) for day in range(2, 30)]
@@ -162,8 +142,6 @@ def test_soma_do_dia_precisa_de_uma_semana_de_historico():
     assert UnusualDailySum().evaluate(make_pix(amount_cents=900000), history(*known_payer(5)), P) is None
 
 
-# ── TX06 Fracionamento ─────────────────────────────────────────────────
-
 def test_terceiro_pix_logo_abaixo_de_200_reais_na_hora():
     pieces = [past(minutes_ago=10 * (i + 1), amount_cents=19500) for i in range(2)]
     hit = Structuring().evaluate(make_pix(amount_cents=19900), history(*pieces), P)
@@ -180,8 +158,6 @@ def test_valor_fora_da_faixa_nao_e_fracionamento():
     assert Structuring().evaluate(make_pix(amount_cents=17000), history(*pieces), P) is None
 
 
-# ── TX07 Limite noturno ────────────────────────────────────────────────
-
 NIGHT = NOW.replace(hour=22, minute=15)
 
 
@@ -196,13 +172,13 @@ def test_pix_noturno_de_1000_reais_cabe_no_limite():
 
 
 def test_limite_noturno_soma_a_noite_inteira():
-    earlier = past(transaction_date=NIGHT - timedelta(hours=1), amount_cents=70000)   # 21h15, mesma noite
+    earlier = past(transaction_date=NIGHT - timedelta(hours=1), amount_cents=70000)
     hit = NightLimit().evaluate(make_pix(amount_cents=40000, transaction_date=NIGHT), history(earlier), P)
     assert hit.evidence["night_total_cents"] == 110000
 
 
 def test_limite_noturno_nao_soma_o_que_saiu_de_dia():
-    afternoon = past(transaction_date=NIGHT - timedelta(hours=3), amount_cents=70000)   # 19h15
+    afternoon = past(transaction_date=NIGHT - timedelta(hours=3), amount_cents=70000)
     assert NightLimit().evaluate(make_pix(amount_cents=40000, transaction_date=NIGHT), history(afternoon), P) is None
 
 
@@ -220,10 +196,8 @@ def test_janela_noturna_atravessa_a_meia_noite():
     after_midnight = NOW.replace(hour=1)
     start = night_window_start(after_midnight, P)
     assert start == (after_midnight - timedelta(days=1)).replace(hour=20)
-    assert night_window_start(NOW, P) is None   # 14h
+    assert night_window_start(NOW, P) is None
 
-
-# ── TX08 Primeiro Pix para o recebedor ─────────────────────────────────
 
 def test_primeiro_pix_alto_para_recebedor_novo():
     assert FirstPaymentToPayee().evaluate(make_pix(amount_cents=100000, destination_document="11122233344"),
@@ -234,15 +208,12 @@ def test_primeiro_pix_nao_conta_para_quem_o_motor_nunca_viu():
     assert FirstPaymentToPayee().evaluate(make_pix(amount_cents=100000), history(), P) is None
 
 
-# ── Confiança ──────────────────────────────────────────────────────────
-
 def test_recebedor_recorrente_desconta():
     hit = RecurringPayee().evaluate(make_pix(), history(*long_relationship()), P)
     assert hit.points == P.recurring_payee_points
 
 
 def test_furo_tres_dias_seguidos_ainda_e_relacionamento_novo():
-    # Decisão do time: menos de 30 dias desde o primeiro Pix aprovado = ainda é novo.
     assert RecurringPayee().evaluate(make_pix(), history(*known_payer(3)), P) is None
 
 
@@ -270,9 +241,6 @@ def test_recorrencia_so_conta_pix_aprovado():
 def test_mesma_titularidade_desconta():
     assert OwnAccount().evaluate(make_pix(destination_document=PAYER), history(), P).points == P.own_account_points
 
-
-# ── TR01 materialidade (decisão do time: 5x, a mesma régua do TX04) ─────
-# Os casos da tabela que o time usou para escolher o número.
 
 def rent_history(amount: int) -> list:
     return [past(minutes_ago=60 * 24 * 30 * month, amount_cents=amount) for month in (1, 2, 3)]
@@ -311,3 +279,15 @@ def test_furo_aquecimento_com_600_reais_nao_avaliza_5000():
     hit = RecurringPayee().evaluate(make_pix(amount_cents=500000), history(*rent_history(60000)), P)
     assert hit.points == 0
     assert hit.evidence["ratio"] == 8.33
+
+
+def test_fila_do_pagador_estourada_pede_2fa():
+    from rules.transaction_rules import PayerQueueOverflow
+    from rules import History
+    hit = PayerQueueOverflow().evaluate(make_pix(), History(payer_lock_timed_out=True), P)
+    assert hit.effect == "FORCE_TWO_FACTOR" and hit.points == 0
+
+
+def test_legitimo_sem_fila_estourada_tx09_nao_dispara():
+    from rules.transaction_rules import PayerQueueOverflow
+    assert PayerQueueOverflow().evaluate(make_pix(), history(), P) is None

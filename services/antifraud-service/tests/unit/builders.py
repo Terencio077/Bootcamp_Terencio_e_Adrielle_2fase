@@ -1,10 +1,3 @@
-"""Monta Pix e históricos à mão, com padrões neutros (nenhuma regra dispara).
-
-Cada teste muda só o campo que interessa. O Pix padrão é de dia, valor
-baixo, para uma conta antiga, de um aparelho que o pagador já usa: um Pix
-que o motor aprova sem pontuar nada.
-"""
-
 from dataclasses import replace
 from datetime import datetime, timedelta
 
@@ -57,10 +50,8 @@ def history(*payer_pix: PastPix, distinct_other_payers: int = 0, rejected: int =
 
 
 def long_relationship(**overrides) -> list:
-    """Pagador que paga o mesmo recebedor uma vez por mês, há três meses."""
     return [past(minutes_ago=60 * 24 * 30 * month, **overrides) for month in (1, 2, 3)]
 
 
 def known_payer(count: int = 6, **overrides) -> list:
-    """Um pagador com histórico: um Pix aprovado por dia, nos últimos `count` dias."""
     return [past(minutes_ago=60 * 24 * (day + 1), **overrides) for day in range(count)]

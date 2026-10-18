@@ -1,0 +1,28 @@
+VALIDACAO DO PACOTE — 18/10/2026 UTC
+
+Executado neste ambiente:
+- Compilacao dos dois arquivos Python sem erros.
+- Oito testes do gerador com servidor HTTP local simulado: passaram.
+  Cobrem decisoes de negocio, HTTP 500, JSON invalido, fallback, timeout com
+  reconexao, saturacao/contabilidade, identificadores e perfis, relatorio parcial.
+- 150 payloads gerados passaram no JSON Schema da ultima fonte recebida.
+- seed.sql: 15 statements analisados pelo parser PostgreSQL pglast 8.6,
+  apos substituir variaveis psql por valores de teste.
+- Consultas de monitoramento, ranking SQL e extensao: sintaxe analisada.
+- Compose: YAML lido e isolamento de portas conferido.
+
+Nao executado aqui:
+- Docker Compose, build da API e downloads das imagens Docker.
+- Execucao do seed no PostgreSQL, constraints e integracao completa com a API.
+- Qualquer teste real com 100 mil, 500 mil ou 1 milhao de Pix.
+- Qualquer medicao da capacidade, p95/p99 ou gargalo do seu motor.
+
+Este ambiente nao disponibiliza Docker nem PostgreSQL executavel com as permissoes
+necessarias. Analise de sintaxe nao verifica nomes de colunas ou semantica SQL.
+Por isso, rode primeiro o teste curto documentado no LEIA-ME.md.
+Os oito testes deste pacote validam o GERADOR; nao substituem os testes do motor.
+O pacote constroi sua fonte atual; correcoes feitas depois do ultimo ZIP devem
+ser verificadas pelo teste curto, especialmente se houver mudanca de esquema.
+
+Para repetir somente os testes do gerador, sem Docker nem dependencias extras:
+python .\benchmark_antifraude\testar_gerador.py

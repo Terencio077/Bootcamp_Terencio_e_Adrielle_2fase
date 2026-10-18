@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16
+    command: [postgres, -c, shared_preload_libraries=pg_stat_statements, -c, track_io_timing=on]
+    environment:
+      POSTGRES_USER: benchmark
+      POSTGRES_PASSWORD: benchmark_local
+      POSTGRES_DB: benchmark
+    volumes:
+      - dados:/var/lib/postgresql/data
+      - ../services/antifraud-service/database/database.sql:/docker-entrypoint-initdb.d/01.sql:ro
+      - ./monitoring.sql:/docker-entrypoint-initdb.d/02.sql:ro
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U benchmark -d benchmark]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  api:
+    build:
+      context: ../services/antifraud-service
+      target: api
+    environment:
+      APP_ENV: local
+      INTERNAL_TOKEN: benchmark_local
+      SERVICE_NAME: antifraud-benchmark
+      DATABASE_URL: postgresql+psycopg2://benchmark:benchmark_local@db:5432/benchmark
+    ports:
+      - "127.0.0.1:${BENCH_PORT:-18005}:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD-SHELL, "python -c 'import urllib.request; urllib.request.urlopen(\"http://localhost:3000/health_check\")'"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+volumes:
+  dados:

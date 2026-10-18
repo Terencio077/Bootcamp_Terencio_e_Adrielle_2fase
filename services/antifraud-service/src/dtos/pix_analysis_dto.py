@@ -2,16 +2,6 @@ from models import PixAnalysis, PixTransaction
 
 
 def analysis_to_dict(transaction: PixTransaction, analysis: PixAnalysis, status: str, hits: list) -> dict:
-    """A análise como o contrato pede: key, status e metadata.
-
-    O metadata é livre no contrato, e aqui ele é o dossiê da decisão: o
-    suficiente para o atendimento responder "por que meu Pix foi
-    bloqueado?" sem abrir o banco. Nenhum id interno sai — só a key da
-    análise e o id do Pix, que foi quem chamou que escolheu.
-
-    O POST e o GET devolvem exatamente este formato: o GET é a mesma
-    análise, relida do banco.
-    """
     return {
         "key": analysis.analysis_key,
         "status": status.lower(),

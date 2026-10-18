@@ -1,23 +1,3 @@
-"""Em que pé está a confiança num aparelho, para um pagador.
-
-Três estados, e só um deles é confirmação:
-
-    NEW        nunca apareceu no histórico deste pagador
-    OBSERVED   já apareceu, mas nunca teve um Pix aprovado com 24 h de idade
-    RECURRING  observado em vários dias, ao longo de uma semana, sem recusa
-               (histórico de uso, NÃO identidade comprovada)
-    TRUSTED    tem um Pix APROVADO a partir dele há pelo menos 24 h
-
-Por que só a aprovação confirma: o contrato não traz o resultado do 2FA.
-Um Pix que pediu 2FA pode ter sido confirmado ou abandonado, e o motor
-não sabe. Tratar a tentativa como confirmação seria aceitar como prova
-justamente o que não foi provado. Por isso nem tempo, nem repetição, nem
-tentativa pendente viram TRUSTED.
-
-As 24 h depois da aprovação impedem o atalho de aprovar um Pix pequeno e,
-minutos depois, mandar um grande no mesmo aparelho.
-"""
-
 from datetime import datetime, timedelta
 
 from rules.context import APPROVED, REJECTED, History, business_date

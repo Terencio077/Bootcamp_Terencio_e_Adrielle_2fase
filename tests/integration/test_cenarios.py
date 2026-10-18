@@ -1,22 +1,3 @@
-"""Jornadas de ponta a ponta: o histórico é montado pela API e a decisão conferida.
-
-Cada cenário é uma história que a apresentação conta, e cada um prova uma
-escolha do motor:
-
-• aluguel recorrente      -> confiança derruba a fricção (approved)
-• aparelho novo           -> dúvida só sobre QUEM: 2FA resolve (two_factor_required)
-• golpe                   -> dúvida sobre O QUÊ: 2FA não resolve (rejected)
-• concentração            -> CPF novo recebendo de muitos: recusa pela combinação;
-                             comércio antigo com o mesmo volume: aprovado
-• rajada                  -> pede 2FA, mas não recusa sozinha
-• aparelho novo repetido  -> a tentativa com 2FA não vira confirmação
-• viagem impossível       -> geolocalização
-• fracionamento           -> quem conhece o limite e fica logo abaixo
-• destino com recusa      -> só recusas por risco da transação, de pagadores diferentes
-• noturno                 -> limite não é compensado por confiança
-• concorrência            -> Pix simultâneos do mesmo pagador enxergam uns aos outros
-"""
-
 from concurrent.futures import ThreadPoolExecutor
 
 from datetime import timedelta
@@ -33,12 +14,10 @@ from utils.pix_utils import (
 
 
 def test_aluguel_para_o_mesmo_recebedor_passa_sem_friccao():
-    # Um cliente de verdade: Pix médios do dia a dia (até R$ 800) e, uma vez
-    # por mês, o aluguel de R$ 1.500 para o mesmo dono do apartamento.
     payer = new_payer()
     market = new_account()
     start = BASE_TIME - timedelta(days=100)
-    send(build_pix(payer, market, 10000, start))                 # primeiro Pix: aparelho fica confiável
+    send(build_pix(payer, market, 10000, start))
     for day in range(1, 6):
         send(build_pix(payer, market, 80000, start + timedelta(days=day)))
 
@@ -82,8 +61,8 @@ def test_conta_de_cpf_nova_recebendo_de_muitos_pagadores():
         statuses.append(analysis["status"])
 
     assert statuses[:4] == ["approved"] * 4
-    assert statuses[4] == "two_factor_required"   # 5º pagador: concentração + conta nova
-    assert statuses[9] == "rejected"              # 10º: a combinação passa do limite de recusa
+    assert statuses[4] == "two_factor_required"
+    assert statuses[9] == "rejected"
 
 
 def test_legitimo_comercio_antigo_com_o_mesmo_movimento_aprova_todos():
@@ -94,8 +73,6 @@ def test_legitimo_comercio_antigo_com_o_mesmo_movimento_aprova_todos():
 
 
 def test_legitimo_marmita_no_cpf_que_lota_todo_almoco_aprova_todos():
-    """Autônoma que vende marmita e recebe no CPF. O critério não é o documento,
-    é o padrão da conta: ela já teve 12 clientes numa hora em dias anteriores."""
     seller = new_account()
     for days_ago in (7, 3):
         for minute in range(12):
@@ -141,7 +118,7 @@ def test_viagem_impossivel_entre_dois_pix():
 def test_fracionamento_logo_abaixo_do_teto_de_aparelho_novo():
     payer = new_payer()
     warm_up_payer(payer)
-    payee = new_account()   # recebedor novo: um recorrente descontaria a suspeita (TR01)
+    payee = new_account()
     for minute in (0, 10):
         send(build_pix(payer, payee, 19500, BASE_TIME + timedelta(minutes=minute)))
 
@@ -151,14 +128,12 @@ def test_fracionamento_logo_abaixo_do_teto_de_aparelho_novo():
 
 
 def reject_for_transaction_risk(destination: dict, when) -> None:
-    """Um pagador com histórico tentando mandar R$ 3.000 para a conta: recusa pelo lado da transação."""
     victim = new_payer()
     warm_up_payer(victim, start=when)
     assert send(build_pix(victim, destination, 300000, when))["status"] == "rejected"
 
 
 def reject_for_payer_risk(destination: dict, when) -> None:
-    """Recusa causada pelo PAGADOR: celular estranho, canal novo, viagem impossível."""
     payer = new_payer()
     payee = warm_up_payer(payer, start=when)
     send(build_pix(payer, payee, 5000, when - timedelta(minutes=30), geolocation={"latitude": -23.55, "longitude": -46.63}))
@@ -195,7 +170,6 @@ def test_legitimo_recusa_causada_pelo_pagador_nao_mancha_o_recebedor():
 
 
 def tenant_with_rent_history():
-    """Pagador com o aparelho confirmado e três aluguéis de R$ 1.500, em dias diferentes, para o mesmo dono."""
     payer = new_payer()
     warm_up_payer(payer)
     landlord = new_account()
@@ -219,7 +193,6 @@ def test_legitimo_pix_noturno_dentro_do_limite_para_recebedor_recorrente_aprova(
 
 
 def test_recorrencia_pequena_nao_avaliza_valor_muito_maior():
-    # Política B (decisão do time): três Pix de R$ 1 em dias diferentes não avalizam R$ 5.000.
     payer = new_payer()
     warm_up_payer(payer)
     target = new_account()
@@ -232,7 +205,6 @@ def test_recorrencia_pequena_nao_avaliza_valor_muito_maior():
 
 
 def test_aquecimento_em_dias_seguidos_nao_vira_recorrencia():
-    # Decisão do time: menos de 30 dias desde o primeiro Pix ao recebedor = relacionamento novo.
     payer = new_payer()
     warm_up_payer(payer)
     target = new_account(opening_date=(BASE_TIME - timedelta(days=25)).isoformat())
@@ -244,10 +216,6 @@ def test_aquecimento_em_dias_seguidos_nao_vira_recorrencia():
 
 
 def test_pix_simultaneos_do_mesmo_pagador_enxergam_uns_aos_outros():
-    # Doze Pix do mesmo pagador chegando ao mesmo tempo, com o mesmo horário.
-    # Com a trava, as análises acontecem em fila: cada uma enxerga todas as
-    # anteriores, e a contagem da rajada sai 1, 2, 3 ... 12, sem repetir.
-    # Sem a trava, duas análises leem o mesmo histórico e contam igual.
     payer = new_payer()
     payee = warm_up_payer(payer)
     payloads = [build_pix(payer, payee, 1500, BASE_TIME) for _ in range(12)]

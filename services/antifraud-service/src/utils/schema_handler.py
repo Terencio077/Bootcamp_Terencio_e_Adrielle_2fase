@@ -77,23 +77,6 @@ class SchemaHandler:
 
     @staticmethod
     def validate(schema_file_name: str):
-        """Decorator que valida o `payload` antes de o resource rodar.
-
-        Usa-se assim, no método do resource que recebe corpo:
-
-            class PixTransactionResource:
-                @SchemaHandler.validate("post_pix_transaction.json")
-                def on_post(self, payload: dict) -> dict:
-
-        O nome do arquivo é o único argumento, e ele aponta pra dentro
-        de src/schemas/. Método que não recebe corpo — um GET, um
-        DELETE — não leva decorator nenhum: não há o que conferir.
-
-        Repare que o endereço HTTP não aparece aqui. Quem liga
-        "/pix/transaction" a este método é o src/app.py, e é de propósito:
-        o resource cuida do CONTEÚDO da requisição, o app.py cuida do
-        ENDEREÇO dela.
-        """
 
         def decorator_validate(func):
             @functools.wraps(func)

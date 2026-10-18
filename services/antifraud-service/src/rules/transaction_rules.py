@@ -1,11 +1,3 @@
-"""Eixo TRANSAÇÃO — "a transação é legítima?"
-
-Mesmo que seja o dono da conta pagando, o Pix pode ser golpe: o falso
-funcionário do banco, o falso parente, o sequestro relâmpago. Nesses
-casos a pessoa é quem diz ser e passa no 2FA — o problema é PARA ONDE e
-QUANTO. Por isso este eixo recusa mais cedo (ver rules/parameters.py).
-"""
-
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -15,12 +7,6 @@ from rules.rule import FORCE_TWO_FACTOR, TRANSACTION, Rule, RuleHit
 
 
 class YoungDestination(Rule):
-    """TX01 — a conta que recebe acabou de ser aberta.
-
-    Conta laranja tem vida curta: é aberta, recebe o dinheiro do golpe e é
-    abandonada. O payload traz a data de abertura do destino, e é o sinal
-    mais barato que existe: não custa consulta nenhuma.
-    """
 
     code = "TX01"
     axis = TRANSACTION
@@ -42,24 +28,6 @@ class YoungDestination(Rule):
 
 
 class PayerConcentration(Rule):
-    """TX02 — muitos pagadores diferentes tentando pagar a mesma conta, MAIS do que ela costuma receber.
-
-    Concentração de pagadores aparece numa conta laranja (dezenas de vítimas
-    pagando o mesmo "produto" que não existe) e também num restaurante na
-    hora do almoço. O que separa os dois não é o tipo de documento — um
-    golpista abre um MEI em uma semana —, é o PASSADO DA PRÓPRIA CONTA: o
-    restaurante lota no almoço todo dia; a laranja não recebia de ninguém.
-
-    Por isso a regra compara a hora atual com o pico da conta nos últimos
-    30 dias e só conta o EXCESSO: pagadores acima de 1,5× esse pico. Uma
-    conta sem passado tem pico zero e conta tudo (e a TX01 soma a idade).
-
-    O tipo do recebedor fica como contexto secundário, só nos limites
-    aplicados ao excesso: uma conta de CNPJ sem histórico aqui (comércio
-    recém-chegado) ainda tem mais folga que uma de CPF.
-    Conta quem TENTOU pagar (inclusive recusados): a demanda pela conta é
-    o sinal, independentemente do que o motor decidiu.
-    """
 
     code = "TX02"
     axis = TRANSACTION
@@ -90,18 +58,6 @@ class PayerConcentration(Rule):
 
 
 class RejectedDestination(Rule):
-    """TX03 — esta conta já teve Pix recusados POR MOTIVOS DO LADO DA TRANSAÇÃO.
-
-    Uma recusa causada pelo pagador (viagem impossível, rajada) não diz nada
-    sobre quem recebe, e não conta aqui. Só contam recusas em que a nota da
-    transação, SEM os pontos da própria TX03, já bastava para recusar —
-    assim a regra não se alimenta das próprias decisões. E precisa de
-    pagadores DIFERENTES: uma vítima só não marca a conta. O peso é
-    limitado; ela soma, não decide.
-
-    Quem filtra as recusas é o repository (ver HistoryRepository): aqui
-    chega só a contagem.
-    """
 
     code = "TX03"
     axis = TRANSACTION
@@ -117,13 +73,6 @@ class RejectedDestination(Rule):
 
 
 class OutOfProfileAmount(Rule):
-    """TX04 — valor muito acima do que este pagador costuma mandar.
-
-    Compara com o MAIOR Pix aprovado do pagador, e não com a média: a média
-    pune quem paga o aluguel uma vez por mês e faz pequenos Pix o resto do
-    tempo. "Maior que o dobro do maior Pix que você já fez" é fácil de
-    explicar ao cliente e difícil de acontecer por acaso.
-    """
 
     code = "TX04"
     axis = TRANSACTION
@@ -153,23 +102,6 @@ class OutOfProfileAmount(Rule):
 
 
 class UnusualDailySum(Rule):
-    """TX05 — a soma do dia passou muito do que o pagador movimenta por dia.
-
-    Pega o que o TX04 não vê: vários Pix médios que, somados, esvaziam a
-    conta. Compara as últimas 24 h com a média diária dos 29 dias antes
-    delas, e só para quem tem pelo menos uma semana de histórico.
-
-    Dupla contagem: se o excesso é explicado só pelo Pix atual (as saídas
-    anteriores do dia estavam normais e ele sozinho chega ao limite), o caso
-    é de "valor fora do perfil" (TX04), e contar o mesmo Pix nas duas regras
-    puniria duas vezes um único pagamento grande — como o empréstimo ao
-    amigo de sempre. Mas se as saídas ANTERIORES do dia já passaram do
-    limite, a regra dispara qualquer que seja o valor atual: aumentar o
-    valor não pode desligar o sinal de esvaziamento.
-
-    A antiguidade e a média de 30 dias vêm de agregados do banco sobre o
-    histórico inteiro, para o corte de 500 linhas não desligar a regra.
-    """
 
     code = "TX05"
     axis = TRANSACTION
@@ -214,12 +146,6 @@ class UnusualDailySum(Rule):
 
 
 class Structuring(Rule):
-    """TX06 — vários Pix logo abaixo de um limite conhecido.
-
-    Quem conhece o teto (R$ 200 do aparelho novo, R$ 1.000 da noite) quebra
-    o valor em pedaços de R$ 199. Cada pedaço passa nas regras de limite; a
-    repetição dentro da faixa é que denuncia.
-    """
 
     code = "TX06"
     axis = TRANSACTION
@@ -251,24 +177,6 @@ class Structuring(Rule):
 
 
 class NightLimit(Rule):
-    """TX07 — regulação: Pix de pessoa física entre 20h e 6h tem teto (R$ 1.000 por padrão).
-
-    O limite noturno existe por causa do sequestro relâmpago: a vítima está
-    com o celular, desbloqueia com o próprio rosto e passaria no 2FA. Por
-    isso ele mora no eixo da TRANSAÇÃO, e não no da identidade. Soma o que
-    já saiu na mesma noite, para não ser driblado com vários Pix menores.
-
-    É LIMITE, não suspeita: o efeito é um piso de 2FA que nenhum desconto de
-    confiança derruba, mais os pontos para somar com outros sinais.
-
-    HIPÓTESES, porque o contrato não informa a configuração do cliente:
-    • usa o padrão (R$ 1.000, 20h-6h); o cliente pode ter mudado o horário
-      para 22h-6h ou pedido aumento, e por isso o motor pede confirmação em
-      vez de recusar;
-    • aplica só a CPF: a norma também vale para MEI, que não dá para
-      distinguir de outros CNPJs pelo payload.
-    Não é o cumprimento completo da norma, e sim a aproximação possível.
-    """
 
     code = "TX07"
     axis = TRANSACTION
@@ -295,16 +203,6 @@ class NightLimit(Rule):
 
 
 class FirstPaymentToPayee(Rule):
-    """TX08 — primeira vez que este pagador manda dinheiro para este recebedor, com valor relevante.
-
-    Sozinho é o dia a dia (todo mundo paga alguém pela primeira vez um dia)
-    e por isso vale pouco. Ele existe para somar: destino novo + valor alto
-    + primeira vez é o retrato do golpe.
-
-    Para um pagador que o motor nunca viu, todo recebedor é "o primeiro" —
-    a regra não diria nada sobre ele, só sobre o nosso cold start. Por isso
-    ela só roda para quem já tem histórico (mesmo critério do ID01).
-    """
 
     code = "TX08"
     axis = TRANSACTION
@@ -317,8 +215,6 @@ class FirstPaymentToPayee(Rule):
             return None
         if pix.source_document == pix.destination_document:
             return None
-        # Só pagamento APROVADO tira o "primeiro Pix": uma tentativa pendente
-        # (2FA não confirmado) não prova relacionamento nenhum.
         if any(past.destination_document == pix.destination_document and past.status == APPROVED
                for past in history.payer_pix):
             return None
@@ -328,11 +224,6 @@ class FirstPaymentToPayee(Rule):
 
 
 def night_window_start(moment: datetime, parameters: Parameters) -> Optional[datetime]:
-    """Início da noite em que o Pix caiu (20h do dia ou da véspera), ou None se for dia.
-
-    Usa a hora local do próprio Pix (o fuso que veio na transaction_date):
-    o limite noturno é sobre o relógio de quem paga.
-    """
     hour = moment.hour
     if hour >= parameters.night_start_hour:
         return moment.replace(hour=parameters.night_start_hour, minute=0, second=0, microsecond=0)
@@ -342,5 +233,20 @@ def night_window_start(moment: datetime, parameters: Parameters) -> Optional[dat
     return None
 
 
+class PayerQueueOverflow(Rule):
+
+    code = "TX09"
+    axis = TRANSACTION
+    name = "Pix simultâneos demais do mesmo pagador"
+
+    def evaluate(self, pix: PixRequest, history: History, parameters: Parameters) -> Optional[RuleHit]:
+        if not history.payer_lock_timed_out:
+            return None
+        return RuleHit(self.code, self.axis, FORCE_TWO_FACTOR, 0,
+                       "Muitos Pix simultâneos do mesmo pagador; o cliente confirma antes de seguir.",
+                       {"queue_wait_limit_ms": parameters.payer_lock_timeout_ms})
+
+
 TRANSACTION_RULES = [YoungDestination(), PayerConcentration(), RejectedDestination(), OutOfProfileAmount(),
-                     UnusualDailySum(), Structuring(), NightLimit(), FirstPaymentToPayee()]
+                     UnusualDailySum(), Structuring(), NightLimit(), FirstPaymentToPayee(),
+                     PayerQueueOverflow()]

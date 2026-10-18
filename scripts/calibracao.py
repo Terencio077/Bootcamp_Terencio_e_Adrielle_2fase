@@ -1,18 +1,3 @@
-"""Bateria de calibração: cenários com o resultado ESPERADO escrito antes de rodar.
-
-    python scripts/calibracao.py
-
-Roda o motor puro (sem banco, sem Docker) sobre cenários montados à mão:
-metade legítimos, metade golpes. Para cada cenário, o esperado foi definido
-ANTES de ver a saída do motor:
-  • legítimo -> o aceitável é "approved" (ou "2fa" quando marcado como aceitável)
-  • golpe    -> o aceitável é "rejected" (ou "2fa" quando marcado como aceitável)
-
-Depois repete tudo com limiares alternativos de recusa da transação (50, 60,
-70) e de 2FA (25, 30, 35), para mostrar o que muda. NÃO altera nenhuma regra:
-é medição. Os cenários são simulação montada pelo time, não dados reais.
-"""
-
 import os
 import sys
 from dataclasses import replace
@@ -50,13 +35,10 @@ def hist(items, other_payers=0, rejected_payers=0):
 
 
 def everyday(days=20, amount=8000):
-    """Vida normal: um Pix por dia para o mercado, do aparelho de sempre."""
     return [past(days_ago=d, amount=amount, doc="11111111111", account=("1", "1", "mkt")) for d in range(1, days + 1)]
 
 
-# (nome, tipo, aceitáveis, pix, histórico)
 SCENARIOS = [
-    # ── LEGÍTIMOS ────────────────────────────────────────────────────────
     ("Pix pequeno do dia a dia", "legit", {"aprova"}, pix(5000, doc="11111111111", account=("1", "1", "mkt")), hist(everyday())),
     ("Aluguel de sempre (4º mês)", "legit", {"aprova"}, pix(150000), hist(everyday() + [past(days_ago=30 * m, amount=150000) for m in (1, 2, 3)])),
     ("Aluguel com reajuste de 10%", "legit", {"aprova"}, pix(165000), hist(everyday() + [past(days_ago=30 * m, amount=150000) for m in (1, 2, 3)])),
@@ -73,7 +55,6 @@ SCENARIOS = [
     ("Pix noturno de R$ 1.500 (aluguel atrasado)", "legit", {"2fa"}, pix(150000, when=NOW.replace(hour=22)), hist(everyday() + [past(days_ago=30 * m, amount=150000) for m in (1, 2, 3)])),
     ("Primeiro Pix de cliente novo, R$ 150", "legit", {"aprova", "2fa"}, pix(15000), hist([])),
     ("Viagem: SP pela manhã, Rio 6h depois", "legit", {"aprova"}, pix(5000, doc="11111111111", account=("1", "1", "mkt"), lat=-22.9, lon=-43.2), hist(everyday() + [past(minutes_ago=360, amount=5000, doc="11111111111", account=("1", "1", "mkt"), lat=-23.55, lon=-46.63)])),
-    # ── GOLPES ───────────────────────────────────────────────────────────
     ("Falso parente: R$ 3.000 p/ conta de 2 dias", "fraude", {"recusa"}, pix(300000, doc="77777777777", account=("9", "9", "lar"), opened=NOW - timedelta(days=2)), hist(everyday())),
     ("Falso parente: R$ 1.500 p/ conta de 5 dias", "fraude", {"recusa", "2fa"}, pix(150000, doc="77777777777", account=("9", "9", "lar"), opened=NOW - timedelta(days=5)), hist(everyday())),
     ("Conta roubada: celular novo, R$ 5.000 p/ conta nova", "fraude", {"recusa"}, pix(500000, doc="77777777777", account=("9", "9", "lar"), opened=NOW - timedelta(days=3), device="dev-ladrao"), hist(everyday())),

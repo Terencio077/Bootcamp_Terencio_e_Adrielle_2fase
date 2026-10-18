@@ -1,11 +1,3 @@
-"""O formato comum de toda regra, e do que ela devolve quando dispara.
-
-Uma regra é uma classe pequena com uma pergunta só. Ela devolve um
-`RuleHit` quando o sinal aparece, ou `None` quando não tem nada a dizer.
-O motor (rules/engine.py) não conhece regra nenhuma pelo nome: ele recebe
-a lista e soma. Regra nova é uma classe nova na lista; o motor não muda.
-"""
-
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional
@@ -13,18 +5,12 @@ from typing import Optional
 from rules.context import History, PixRequest
 from rules.parameters import Parameters
 
-# Os dois eixos de risco, nas palavras da apresentação da QI Tech.
-IDENTITY = "IDENTITY"         # "Quem é essa pessoa?"
-TRANSACTION = "TRANSACTION"   # "A transação é legítima?"
+IDENTITY = "IDENTITY"
+TRANSACTION = "TRANSACTION"
 
-# O que o disparo faz com a decisão.
-SCORE = "SCORE"                       # soma pontos no eixo (podem ser negativos: confiança)
-FORCE_TWO_FACTOR = "FORCE_TWO_FACTOR"  # piso de 2FA: abaixo disso não aprova (regulatório)
-REJECT = "REJECT"                     # risco claro: recusa sozinha
-# Efeitos de FALHA TÉCNICA (uma regra quebrou). Têm nome próprio para não se
-# confundirem com evidência de risco: a decisão é a mesma de REJECT e de
-# FORCE_TWO_FACTOR, mas nada que olhe o passado (como a TX03) pode tratar
-# um defeito nosso como sinal de fraude do recebedor.
+SCORE = "SCORE"
+FORCE_TWO_FACTOR = "FORCE_TWO_FACTOR"
+REJECT = "REJECT"
 FAILSAFE_REJECT = "FAILSAFE_REJECT"
 FAILSAFE_TWO_FACTOR = "FAILSAFE_TWO_FACTOR"
 
@@ -35,8 +21,8 @@ class RuleHit:
     axis: str
     effect: str
     points: int
-    reason: str                       # frase para o atendimento ler ao cliente
-    evidence: dict = field(default_factory=dict)   # os números que a regra viu
+    reason: str
+    evidence: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -56,7 +42,7 @@ class Rule(ABC):
 
     @abstractmethod
     def evaluate(self, pix: PixRequest, history: History, parameters: Parameters) -> Optional[RuleHit]:
-        """Olha o Pix e o passado; devolve o disparo ou None."""
+        pass
 
     def hit(self, points: int, reason: str, evidence: dict = None, effect: str = SCORE) -> RuleHit:
         return RuleHit(self.code, self.axis, effect, points, reason, evidence or {})

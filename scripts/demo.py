@@ -1,14 +1,3 @@
-"""Demonstração para a apresentação: conta seis histórias e mostra o que o motor decidiu.
-
-    python scripts/demo.py
-
-Precisa do serviço no ar (docker compose up -d --build --wait). Cada
-execução inventa pagadores e contas novos, então pode rodar quantas vezes
-quiser sem limpar o banco. O histórico de cada história é montado com
-POSTs de verdade, com datas no passado; o último Pix de cada uma é o que
-aparece na tela, com a nota dos dois eixos e as regras que dispararam.
-"""
-
 import os
 import random
 import uuid
@@ -58,10 +47,6 @@ def pix(who: dict, to: dict, amount: int, when: datetime, device: str = None, ge
 
 
 def daily_life(who: dict, days: int = 6, amount: int = 8000, until: datetime = NOW) -> dict:
-    """Uma semana de Pix para o mesmo mercado: o pagador ganha histórico.
-
-    O primeiro é pequeno (até R$ 200): é ele que torna o aparelho confiável.
-    """
     market = account()
     pix(who, market, 8000, until - timedelta(days=days + 1))
     for day in range(days, 0, -1):
@@ -85,7 +70,6 @@ def show(title: str, story: str, analysis: dict) -> None:
 def main() -> None:
     print("Motor antifraude de Pix — demonstração\n")
 
-    # 1. O aluguel de todo mês
     tenant = payer()
     daily_life(tenant, amount=80000, until=NOW - timedelta(days=95))
     landlord = account()
@@ -94,20 +78,17 @@ def main() -> None:
     show("1. Aluguel de todo mês", "R$ 1.500 para o mesmo dono do apartamento, como nos últimos meses.",
          pix(tenant, landlord, 150000, NOW))
 
-    # 2. Celular novo
     owner = payer()
     usual = daily_life(owner)
     show("2. Celular novo", "R$ 150 para o mercado de sempre, mas de um aparelho que ele nunca usou.",
          pix(owner, usual, 15000, NOW, device="dvc-celular-novo"))
 
-    # 3. Golpe do falso parente
     victim = payer()
     daily_life(victim)
     mule = account(opened=(NOW - timedelta(days=2)).isoformat())
     show("3. Golpe do falso parente", "Aparelho de sempre, R$ 3.000 para uma conta aberta há 2 dias.",
          pix(victim, mule, 300000, NOW))
 
-    # 4. Concentração de pagadores: a mesma cena, dois recebedores
     hub = account(opened=(NOW - timedelta(days=3)).isoformat())
     for minute in range(9):
         pix(payer(), hub, 9000, NOW + timedelta(minutes=minute))
@@ -120,7 +101,6 @@ def main() -> None:
     show("4b. Lanchonete antiga (CNPJ)", "O mesmo movimento: o 10º cliente diferente na hora do almoço.",
          pix(payer(), shop, 3500, NOW + timedelta(minutes=10)))
 
-    # 5. O exemplo do enunciado
     example_payer = payer()
     show("5. Exemplo do enunciado", "R$ 1.500 às 22h15, destino aberto há 7 dias, primeiro Pix do pagador.",
          pix(example_payer, account(opened="2026-10-10T09:00:00-03:00"), 150000,
